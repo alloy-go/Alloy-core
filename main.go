@@ -25,7 +25,12 @@ func main() {
 	r := gin.Default()
 
 	routes.RegisterRoutes(r, db)
-	routes.WebhookRoutes(r, db)
+
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"Message": "Welcome to Minimon",
+		})
+	})
 
 	// Health route
 	r.GET("/health", func(c *gin.Context) {

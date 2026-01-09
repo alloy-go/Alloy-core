@@ -17,4 +17,9 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 		init.POST("/signup", initController.SignupAndCreateProject)
 		init.POST("/login", initController.LoginAndCreateProject)
 	}
+
+	webhookRouter := api.Group("/webhook")
+	{
+		webhookRouter.POST("/deploy", controllers.DeployWebhook)
+	}
 }
