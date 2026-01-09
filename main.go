@@ -1,0 +1,30 @@
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/gin-gonic/gin"
+	"MiniMon/config"
+)
+
+func main() {
+	// Load DB config
+	db := config.InitDB()
+	defer db.Close()
+
+	r := gin.Default()
+
+	// Health route
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status": "Server is up",
+			"db":     "connected",
+		})
+	})
+
+	port := os.Getenv("PORT")
+
+	log.Println("Server running on port", port)
+	r.Run(":" + port)
+}
