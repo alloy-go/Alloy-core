@@ -4,22 +4,28 @@ import (
 	"log"
 	"os"
 
-	"github.com/gin-gonic/gin"
 	"github.com/Santhoshkumar044/MiniMon/config"
 	"github.com/Santhoshkumar044/MiniMon/routes"
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 	// Load DB config
 	db := config.InitDB()
 	defer db.Close()
 
-	config.RunMigrations(db);
-	gin.SetMode(gin.ReleaseMode);
-	
+	config.RunMigrations(db)
+	gin.SetMode(gin.ReleaseMode)
+
 	r := gin.Default()
 
-	routes.RegisterRoutes(r,db);
+	routes.RegisterRoutes(r, db)
+	routes.WebhookRoutes(r, db)
 
 	// Health route
 	r.GET("/health", func(c *gin.Context) {
