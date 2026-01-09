@@ -1,4 +1,4 @@
-module MiniMon
+module github.com/Santhoshkumar044/MiniMon
 
 go 1.25.0
 

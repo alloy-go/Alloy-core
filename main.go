@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"MiniMon/config"
+	"github.com/Santhoshkumar044/MiniMon/config"
 )
 
 func main() {
