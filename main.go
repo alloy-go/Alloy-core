@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/Santhoshkumar044/MiniMon/config"
+	"github.com/Santhoshkumar044/MiniMon/routes"
 )
 
 func main() {
@@ -17,6 +18,8 @@ func main() {
 	gin.SetMode(gin.ReleaseMode);
 	
 	r := gin.Default()
+
+	routes.RegisterRoutes(r,db);
 
 	// Health route
 	r.GET("/health", func(c *gin.Context) {

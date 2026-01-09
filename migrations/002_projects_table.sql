@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS projects (
-    project_id UUID PRIMARY KEY,
+    project_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     project_name TEXT NOT NULL,
     deployment_type TEXT NOT NULL,
