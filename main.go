@@ -13,6 +13,9 @@ func main() {
 	db := config.InitDB()
 	defer db.Close()
 
+	config.RunMigrations(db);
+	gin.SetMode(gin.ReleaseMode);
+	
 	r := gin.Default()
 
 	// Health route
