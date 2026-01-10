@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -20,272 +21,379 @@ import (
 )
 
 type DeploymentResult struct {
-    Secret     string `json:"secret"`
-    Service    string `json:"service"`
-    Deployment string `json:"deployment"`
+	Secret     string `json:"secret"`
+	Service    string `json:"service"`
+	Deployment string `json:"deployment"`
 }
 
 type K8sDeployConfig struct {
-    KubeconfigPath string
-    ContextName    string
-    SecretYAML     []byte
-    ServiceYAML    []byte
-    DeploymentYAML []byte
-	DeploymentID    string
-	Namespace 		string
-	DeploymentName	string
-	DB				*pgxpool.Pool
+	KubeconfigPath string
+	ContextName    string
+	SecretYAML     []byte
+	ServiceYAML    []byte
+	DeploymentYAML []byte
+	DeploymentID   string
+	Namespace      string
+	DeploymentName string
+	DB             *pgxpool.Pool
 }
 
 // DeployToKubernetes handles the full deployment process
 func DeployToKubernetes(config K8sDeployConfig) (*DeploymentResult, error) {
-    results := &DeploymentResult{}
+	results := &DeploymentResult{}
 
-    // Update status to deploying
-    updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", "", "", "")
+	// Update status to deploying
+	updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", "", "", "")
 
-    // Deploy Secret
-    log.Println("📦 Deploying Secret...")
-    if err := ApplyYAML(config.KubeconfigPath, config.ContextName, config.SecretYAML); err != nil {
-        log.Printf("❌ Secret deployment failed: %v\n", err)
-        results.Secret = "failed"
-        updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", "failed", "", "")
-    } else {
-        log.Println("✅ Secret deployed")
-        results.Secret = "success"
-        updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", "success", "", "")
-    }
+	// Deploy Secret
+	log.Println("📦 Deploying Secret...")
+	if err := ApplyYAML(config.KubeconfigPath, config.ContextName, config.SecretYAML); err != nil {
+		log.Printf("❌ Secret deployment failed: %v\n", err)
+		results.Secret = "failed"
+		updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", "failed", "", "")
+	} else {
+		log.Println("✅ Secret deployed")
+		results.Secret = "success"
+		updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", "success", "", "")
+	}
 
-    // Deploy Service
-    log.Println("📦 Deploying Service...")
-    if err := ApplyYAML(config.KubeconfigPath, config.ContextName, config.ServiceYAML); err != nil {
-        log.Printf("❌ Service deployment failed: %v\n", err)
-        results.Service = "failed"
-        updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", results.Secret, "failed", "")
-    } else {
-        log.Println("✅ Service deployed")
-        results.Service = "success"
-        updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", results.Secret, "success", "")
-    }
+	// Deploy Service
+	log.Println("📦 Deploying Service...")
+	if err := ApplyYAML(config.KubeconfigPath, config.ContextName, config.ServiceYAML); err != nil {
+		log.Printf("❌ Service deployment failed: %v\n", err)
+		results.Service = "failed"
+		updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", results.Secret, "failed", "")
+	} else {
+		log.Println("✅ Service deployed")
+		results.Service = "success"
+		updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", results.Secret, "success", "")
+	}
 
-    // Deploy Deployment
-    log.Println("📦 Deploying Deployment...")
-    if err := ApplyYAML(config.KubeconfigPath, config.ContextName, config.DeploymentYAML); err != nil {
-        log.Printf("❌ Deployment failed: %v\n", err)
-        results.Deployment = "failed"
-        updateDeploymentStatus(config.DB, config.DeploymentID, "failed", results.Secret, results.Service, "failed")
-        updateDeploymentError(config.DB, config.DeploymentID, err.Error())
-        return results, fmt.Errorf("deployment failed: %w", err)
-    }
-    
-    log.Println("✅ Deployment created")
-    results.Deployment = "success"
-    updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", results.Secret, results.Service, "success")
+	// Deploy Deployment
+	log.Println("📦 Deploying Deployment...")
+	if err := ApplyYAML(config.KubeconfigPath, config.ContextName, config.DeploymentYAML); err != nil {
+		log.Printf("❌ Deployment failed: %v\n", err)
+		results.Deployment = "failed"
+		updateDeploymentStatus(config.DB, config.DeploymentID, "failed", results.Secret, results.Service, "failed")
+		updateDeploymentError(config.DB, config.DeploymentID, err.Error())
+		return results, fmt.Errorf("deployment failed: %w", err)
+	}
 
-    // Start monitoring deployment status in background
-    go monitorDeploymentStatus(config)
+	log.Println("✅ Deployment created")
+	results.Deployment = "success"
+	updateDeploymentStatus(config.DB, config.DeploymentID, "deploying", results.Secret, results.Service, "success")
 
-    return results, nil
+	// Start monitoring deployment status in background
+	go monitorDeploymentStatus(config)
+
+	return results, nil
+}
+
+// waitForSinglePod waits until only one pod remains (old ones terminated)
+func waitForSinglePod(kubeconfigPath, contextName, namespace string, timeout time.Duration) error {
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
+		&clientcmd.ConfigOverrides{CurrentContext: contextName},
+	).ClientConfig()
+	if err != nil {
+		return err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		pods, err := clientset.CoreV1().Pods(namespace).List(
+			context.Background(),
+			metav1.ListOptions{
+				LabelSelector: "app=student-app",
+			},
+		)
+
+		if err != nil {
+			return err
+		}
+
+		// Count non-terminating pods
+		runningPods := 0
+		terminatingPods := 0
+
+		for _, pod := range pods.Items {
+			if pod.DeletionTimestamp != nil {
+				terminatingPods++
+				log.Printf("   ⏳ Pod %s still terminating...\n", pod.Name)
+			} else if pod.Status.Phase == v1.PodRunning {
+				runningPods++
+			}
+		}
+
+		log.Printf("   📊 Running: %d, Terminating: %d\n", runningPods, terminatingPods)
+
+		// Perfect: only new pods, no terminating ones
+		if runningPods > 0 && terminatingPods == 0 {
+			log.Printf("✅ Old pods cleaned up, %d pod(s) running\n", runningPods)
+			return nil
+		}
+
+		<-ticker.C
+	}
+
+	return fmt.Errorf("timeout waiting for old pods to terminate")
 }
 
 // Monitor deployment status until pods are ready
 func monitorDeploymentStatus(config K8sDeployConfig) {
-    ticker := time.NewTicker(5 * time.Second)
-    defer ticker.Stop()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-    timeout := time.After(5 * time.Minute)
+	timeout := time.After(5 * time.Minute)
 
-    for {
-        select {
-        case <-timeout:
-            log.Printf("⏱️  Deployment monitoring timeout for %s\n", config.DeploymentName)
-            updateDeploymentStatus(config.DB, config.DeploymentID, "failed", "", "", "")
-            updateDeploymentError(config.DB, config.DeploymentID, "deployment timeout")
-            return
+	for {
+		select {
+		case <-timeout:
+			log.Printf("⏱️  Deployment monitoring timeout for %s\n", config.DeploymentName)
+			updateDeploymentStatus(config.DB, config.DeploymentID, "failed", "", "", "")
+			updateDeploymentError(config.DB, config.DeploymentID, "deployment timeout")
+			return
 
-        case <-ticker.C:
-            status, err := GetDeploymentStatus(
-                config.KubeconfigPath,
-                config.ContextName,
-                config.Namespace,
-                config.DeploymentName,
-            )
+		case <-ticker.C:
+			status, err := GetDeploymentStatus(
+				config.KubeconfigPath,
+				config.ContextName,
+				config.Namespace,
+				config.DeploymentName,
+			)
 
-            if err != nil {
-                log.Printf("❌ Failed to get deployment status: %v\n", err)
-                continue
-            }
+			if err != nil {
+				log.Printf("❌ Failed to get deployment status: %v\n", err)
+				continue
+			}
 
-            log.Printf("📊 Deployment %s status: %s\n", config.DeploymentName, status)
+			log.Printf("📊 Deployment %s status: %s\n", config.DeploymentName, status)
 
-            if status == "ready" {
-                log.Printf("✅ Deployment %s is ready!\n", config.DeploymentName)
-                updateDeploymentStatus(config.DB, config.DeploymentID, "ready", "", "", "")
-                return
-            }
+			if status == "ready" {
+				log.Printf("✅ Deployment %s is ready!\n", config.DeploymentName)
+				updateDeploymentStatus(config.DB, config.DeploymentID, "ready", "", "", "")
 
-            if status == "failed" {
-                log.Printf("❌ Deployment %s failed\n", config.DeploymentName)
-                updateDeploymentStatus(config.DB, config.DeploymentID, "failed", "", "", "")
-                return
-            }
-        }
-    }
+				// 🔑 WAIT FOR OLD PODS TO BE FULLY TERMINATED
+				log.Println("⏳ Waiting for old pods to be cleaned up...")
+				if err := waitForSinglePod(
+					config.KubeconfigPath,
+					config.ContextName,
+					config.Namespace,
+					30*time.Second,
+				); err != nil {
+					log.Printf("⚠️  Warning: %v\n", err)
+					// Continue anyway after timeout
+				}
+
+				// 🚀 NOW START PORT-FORWARDING
+				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				log.Println("🔌 STARTING PORT-FORWARD")
+				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+				serviceName := "student-app-service"
+				err := StartPortForward(
+					config.KubeconfigPath,
+					config.ContextName,
+					config.Namespace,
+					serviceName,
+					6969,
+					6969,
+				)
+
+				if err != nil {
+					log.Printf("❌ Port-forward failed: %v\n", err)
+				} else {
+					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+					log.Println("🎉 DEPLOYMENT COMPLETE - PORT 6969 IS RUNNING")
+					log.Println("   Access your app at: http://localhost:6969")
+					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				}
+
+				return
+			}
+
+			if status == "failed" {
+				log.Printf("❌ Deployment %s failed\n", config.DeploymentName)
+				updateDeploymentStatus(config.DB, config.DeploymentID, "failed", "", "", "")
+				return
+			}
+		}
+	}
 }
 
 // Update deployment status in database
 func updateDeploymentStatus(db *pgxpool.Pool, deploymentID, status, secretStatus, serviceStatus, deploymentStatus string) {
-    ctx := context.Background()
-    
-    query := `UPDATE deployments SET status = $1, updated_at = NOW()`
-    args := []interface{}{status}
-    argCount := 2
+	ctx := context.Background()
 
-    if secretStatus != "" {
-        query += fmt.Sprintf(`, secret_status = $%d`, argCount)
-        args = append(args, secretStatus)
-        argCount++
-    }
-    if serviceStatus != "" {
-        query += fmt.Sprintf(`, service_status = $%d`, argCount)
-        args = append(args, serviceStatus)
-        argCount++
-    }
-    if deploymentStatus != "" {
-        query += fmt.Sprintf(`, deployment_status = $%d`, argCount)
-        args = append(args, deploymentStatus)
-        argCount++
-    }
+	query := `UPDATE deployments SET status = $1, updated_at = NOW()`
+	args := []interface{}{status}
+	argCount := 2
 
-    query += fmt.Sprintf(` WHERE deployment_id = $%d`, argCount)
-    args = append(args, deploymentID)
+	if secretStatus != "" {
+		query += fmt.Sprintf(`, secret_status = $%d`, argCount)
+		args = append(args, secretStatus)
+		argCount++
+	}
+	if serviceStatus != "" {
+		query += fmt.Sprintf(`, service_status = $%d`, argCount)
+		args = append(args, serviceStatus)
+		argCount++
+	}
+	if deploymentStatus != "" {
+		query += fmt.Sprintf(`, deployment_status = $%d`, argCount)
+		args = append(args, deploymentStatus)
+		argCount++
+	}
 
-    _, err := db.Exec(ctx, query, args...) // Add ctx here
-    if err != nil {
-        log.Printf("❌ Failed to update deployment status: %v\n", err)
-    }
+	query += fmt.Sprintf(` WHERE deployment_id = $%d`, argCount)
+	args = append(args, deploymentID)
+
+	_, err := db.Exec(ctx, query, args...) // Add ctx here
+	if err != nil {
+		log.Printf("❌ Failed to update deployment status: %v\n", err)
+	}
 }
 
 func updateDeploymentError(db *pgxpool.Pool, deploymentID, errorMsg string) {
-    ctx := context.Background()
-    
-    // Truncate error message if too long and escape special chars
-    if len(errorMsg) > 500 {
-        errorMsg = errorMsg[:500] + "..."
-    }
-    
-    _, err := db.Exec(ctx, `
+	ctx := context.Background()
+
+	// Truncate error message if too long and escape special chars
+	if len(errorMsg) > 500 {
+		errorMsg = errorMsg[:500] + "..."
+	}
+
+	_, err := db.Exec(ctx, `
         UPDATE deployments 
         SET error_message = $1, updated_at = NOW()
         WHERE deployment_id = $2
     `, errorMsg, deploymentID)
-    
-    if err != nil {
-        log.Printf("❌ Failed to update error message: %v\n", err)
-    }
-}
 
+	if err != nil {
+		log.Printf("❌ Failed to update error message: %v\n", err)
+	}
+}
 
 // ApplyYAML applies any Kubernetes YAML to the cluster
 func ApplyYAML(kubeconfigPath, contextName string, yamlContent []byte) error {
-    config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-        &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
-        &clientcmd.ConfigOverrides{CurrentContext: contextName},
-    ).ClientConfig()
-    if err != nil {
-        return fmt.Errorf("kubeconfig load error: %w", err)
-    }
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
+		&clientcmd.ConfigOverrides{CurrentContext: contextName},
+	).ClientConfig()
+	if err != nil {
+		return fmt.Errorf("kubeconfig load error: %w", err)
+	}
 
-    dynamicClient, err := dynamic.NewForConfig(config)
-    if err != nil {
-        return fmt.Errorf("dynamic client error: %w", err)
-    }
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("dynamic client error: %w", err)
+	}
 
-    clientset, err := kubernetes.NewForConfig(config)
-    if err != nil {
-        return fmt.Errorf("clientset error: %w", err)
-    }
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("clientset error: %w", err)
+	}
 
-    decUnstructured := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
-    obj := &unstructured.Unstructured{}
-    _, gvk, err := decUnstructured.Decode(yamlContent, nil, obj)
-    if err != nil {
-        return fmt.Errorf("yaml decode error: %w", err)
-    }
+	decUnstructured := yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+	obj := &unstructured.Unstructured{}
+	_, gvk, err := decUnstructured.Decode(yamlContent, nil, obj)
+	if err != nil {
+		return fmt.Errorf("yaml decode error: %w", err)
+	}
 
-    discoveryClient := memory.NewMemCacheClient(clientset.Discovery())
-    mapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
-    mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-    if err != nil {
-        return fmt.Errorf("rest mapping error: %w", err)
-    }
+	discoveryClient := memory.NewMemCacheClient(clientset.Discovery())
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(discoveryClient)
+	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return fmt.Errorf("rest mapping error: %w", err)
+	}
 
-    namespace := obj.GetNamespace()
-    if namespace == "" {
-        namespace = "default"
-    }
+	namespace := obj.GetNamespace()
+	if namespace == "" {
+		namespace = "default"
+	}
 
-    ctx := context.Background()
-    var dr dynamic.ResourceInterface
-    
-    if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
-        dr = dynamicClient.Resource(mapping.Resource).Namespace(namespace)
-    } else {
-        dr = dynamicClient.Resource(mapping.Resource)
-    }
+	ctx := context.Background()
+	var dr dynamic.ResourceInterface
 
-    _, err = dr.Create(ctx, obj, metav1.CreateOptions{})
-    if err != nil {
-        if strings.Contains(err.Error(), "already exists") {
-            _, err = dr.Update(ctx, obj, metav1.UpdateOptions{})
-            if err != nil {
-                return fmt.Errorf("update error: %w", err)
-            }
-            log.Printf("   ↻ Updated existing %s/%s\n", gvk.Kind, obj.GetName())
-            return nil
-        }
-        return fmt.Errorf("create error: %w", err)
-    }
+	if mapping.Scope.Name() == meta.RESTScopeNameNamespace {
+		dr = dynamicClient.Resource(mapping.Resource).Namespace(namespace)
+	} else {
+		dr = dynamicClient.Resource(mapping.Resource)
+	}
 
-    log.Printf("   ✓ Created %s/%s\n", gvk.Kind, obj.GetName())
-    return nil
+	_, err = dr.Create(ctx, obj, metav1.CreateOptions{})
+	if err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			_, err = dr.Update(ctx, obj, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("update error: %w", err)
+			}
+			log.Printf("   ↻ Updated existing %s/%s\n", gvk.Kind, obj.GetName())
+			return nil
+		}
+		return fmt.Errorf("create error: %w", err)
+	}
+
+	log.Printf("   ✓ Created %s/%s\n", gvk.Kind, obj.GetName())
+	return nil
 }
 
 // GetDeploymentStatus checks the status of a deployment
 func GetDeploymentStatus(kubeconfigPath, contextName, namespace, deploymentName string) (string, error) {
-    config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-        &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
-        &clientcmd.ConfigOverrides{CurrentContext: contextName},
-    ).ClientConfig()
-    if err != nil {
-        return "", err
-    }
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
+		&clientcmd.ConfigOverrides{CurrentContext: contextName},
+	).ClientConfig()
+	if err != nil {
+		return "", err
+	}
 
-    clientset, err := kubernetes.NewForConfig(config)
-    if err != nil {
-        return "", err
-    }
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return "", err
+	}
 
-    deployment, err := clientset.AppsV1().Deployments(namespace).Get(
-        context.Background(),
-        deploymentName,
-        metav1.GetOptions{},
-    )
-    if err != nil {
-        return "", err
-    }
+	deployment, err := clientset.AppsV1().Deployments(namespace).Get(
+		context.Background(),
+		deploymentName,
+		metav1.GetOptions{},
+	)
+	if err != nil {
+		return "", err
+	}
 
-    // Check deployment conditions
-    for _, condition := range deployment.Status.Conditions {
-        if condition.Type == "Available" && condition.Status == "True" {
-            if deployment.Status.ReadyReplicas == *deployment.Spec.Replicas {
-                return "ready", nil
-            }
-        }
-        if condition.Type == "Progressing" && condition.Reason == "ProgressDeadlineExceeded" {
-            return "failed", nil
-        }
-    }
+	// Check if rollout is still in progress (controller hasn't seen latest changes)
+	if deployment.Generation > deployment.Status.ObservedGeneration {
+		return "progressing", nil
+	}
 
-    return "progressing", nil
+	// Check for failed conditions
+	for _, condition := range deployment.Status.Conditions {
+		if condition.Type == "Progressing" && condition.Reason == "ProgressDeadlineExceeded" {
+			return "failed", nil
+		}
+	}
+
+	// ALL replicas must be updated and available
+	// This ensures old pods are gone
+	if deployment.Status.UpdatedReplicas == *deployment.Spec.Replicas &&
+		deployment.Status.Replicas == *deployment.Spec.Replicas &&
+		deployment.Status.AvailableReplicas == *deployment.Spec.Replicas &&
+		deployment.Status.ObservedGeneration == deployment.Generation {
+
+		// Double-check: no old ReplicaSets should have pods
+		if deployment.Status.UnavailableReplicas == 0 {
+			return "ready", nil
+		}
+	}
+
+	return "progressing", nil
 }
