@@ -11,6 +11,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	api := r.Group("/api")
 
 	initController := controllers.NewInitController(db)
+	deployController := controllers.NewWebhookController(db)
 
 	init := api.Group("/init")
 	{
@@ -20,6 +21,6 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 
 	webhookRouter := api.Group("/webhook")
 	{
-		webhookRouter.POST("/deploy", controllers.DeployWebhook)
+		webhookRouter.POST("/deploy", deployController.DeployWebhook)
 	}
 }
