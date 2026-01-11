@@ -35,6 +35,9 @@ type K8sDeployConfig struct {
 	DeploymentID   string
 	Namespace      string
 	DeploymentName string
+	ServiceName    string
+	ServicePort    int
+	AppLabel       string
 	DB             *pgxpool.Pool
 }
 
@@ -90,7 +93,7 @@ func DeployToKubernetes(config K8sDeployConfig) (*DeploymentResult, error) {
 }
 
 // waitForSinglePod waits until only one pod remains (old ones terminated)
-func waitForSinglePod(kubeconfigPath, contextName, namespace string, timeout time.Duration) error {
+func waitForSinglePod(kubeconfigPath, contextName, namespace, labelSelector string, timeout time.Duration) error {
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
 		&clientcmd.ConfigOverrides{CurrentContext: contextName},
@@ -112,7 +115,7 @@ func waitForSinglePod(kubeconfigPath, contextName, namespace string, timeout tim
 		pods, err := clientset.CoreV1().Pods(namespace).List(
 			context.Background(),
 			metav1.ListOptions{
-				LabelSelector: "app=student-app",
+				LabelSelector: labelSelector, // USE DYNAMIC LABEL
 			},
 		)
 
@@ -181,39 +184,39 @@ func monitorDeploymentStatus(config K8sDeployConfig) {
 				log.Printf("✅ Deployment %s is ready!\n", config.DeploymentName)
 				updateDeploymentStatus(config.DB, config.DeploymentID, "ready", "", "", "")
 
-				// 🔑 WAIT FOR OLD PODS TO BE FULLY TERMINATED
+				// 🔑 WAIT FOR OLD PODS TO BE FULLY TERMINATED (DYNAMIC LABEL)
 				log.Println("⏳ Waiting for old pods to be cleaned up...")
 				if err := waitForSinglePod(
 					config.KubeconfigPath,
 					config.ContextName,
 					config.Namespace,
+					config.AppLabel, // USE DYNAMIC LABEL
 					30*time.Second,
 				); err != nil {
 					log.Printf("⚠️  Warning: %v\n", err)
 					// Continue anyway after timeout
 				}
 
-				// 🚀 NOW START PORT-FORWARDING
+				// 🚀 NOW START PORT-FORWARDING (DYNAMIC SERVICE & PORT)
 				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 				log.Println("🔌 STARTING PORT-FORWARD")
 				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-				serviceName := "student-app-service"
 				err := StartPortForward(
 					config.KubeconfigPath,
 					config.ContextName,
 					config.Namespace,
-					serviceName,
-					6969,
-					6969,
+					config.ServiceName, // DYNAMIC SERVICE NAME
+					config.ServicePort, // DYNAMIC PORT
+					config.ServicePort, // DYNAMIC PORT
 				)
 
 				if err != nil {
 					log.Printf("❌ Port-forward failed: %v\n", err)
 				} else {
 					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-					log.Println("🎉 DEPLOYMENT COMPLETE - PORT 6969 IS RUNNING")
-					log.Println("   Access your app at: http://localhost:6969")
+					log.Printf("🎉 DEPLOYMENT COMPLETE - PORT %d IS RUNNING\n", config.ServicePort)
+					log.Printf("   Access your app at: http://localhost:%d\n", config.ServicePort)
 					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 				}
 
