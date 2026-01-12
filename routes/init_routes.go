@@ -12,7 +12,8 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 
 	initController := controllers.NewInitController(db)
 	deployController := controllers.NewWebhookController(db)
-
+	canaryController := controllers.NewCanaryController(db)
+	
 	init := api.Group("/init")
 	{
 		init.POST("/signup", initController.SignupAndCreateProject)
@@ -23,5 +24,6 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	{
 		webhookRouter.POST("/deploy-fail", deployController.DeployWebhook)
 		webhookRouter.POST("/deploy", deployController.DeployWebhookFailTest)
+		webhookRouter.POST("/deploy/canary",canaryController.CanaryDeployWebhook)
 	}
 }
