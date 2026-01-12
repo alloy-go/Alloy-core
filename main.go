@@ -6,6 +6,7 @@ import (
 
 	"github.com/Santhoshkumar044/MiniMon/config"
 	"github.com/Santhoshkumar044/MiniMon/routes"
+	services "github.com/Santhoshkumar044/MiniMon/client-go"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -26,6 +27,8 @@ func main() {
 
 	routes.RegisterRoutes(r, db)
 
+	services.NewDeploymentWatcher(db).Start();
+	
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"Message": "Welcome to Minimon",

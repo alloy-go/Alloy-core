@@ -449,6 +449,18 @@ func ExecuteRollback(db *pgxpool.Pool, request RollbackRequest) (*RollbackResult
 
 	// Update status to deploying
 	updateDeploymentStatus(db, rollbackDeploymentID, "deploying", "", "", "success")
+	
+	_, err = db.Exec(context.Background(), `
+    UPDATE deployments 
+    SET status = 'rolled_back',
+        needs_rollback = false,  -- ← RESET FLAG HERE
+        updated_at = NOW()
+    WHERE deployment_id = $1
+	`, request.FailedDeploymentID)
+
+	if err != nil {
+		log.Printf("⚠️ Failed to mark original deployment as rolled_back: %v", err)
+	}
 
 	// 10. Build config for monitoring
 	rollbackConfig := K8sDeployConfig{

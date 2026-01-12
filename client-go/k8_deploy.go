@@ -152,84 +152,108 @@ func waitForSinglePod(kubeconfigPath, contextName, namespace, labelSelector stri
 
 // Monitor deployment status until pods are ready
 func monitorDeploymentStatus(config K8sDeployConfig) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+    ticker := time.NewTicker(5 * time.Second)
+    defer ticker.Stop()
 
-	timeout := time.After(5 * time.Minute)
+    timeout := time.After(5 * time.Minute)
 
-	for {
-		select {
-		case <-timeout:
-			log.Printf("⏱️  Deployment monitoring timeout for %s\n", config.DeploymentName)
-			updateDeploymentStatus(config.DB, config.DeploymentID, "failed", "", "", "")
-			updateDeploymentError(config.DB, config.DeploymentID, "deployment timeout")
-			return
+    for {
+        select {
+        case <-timeout:
+            log.Printf("⏱️  Deployment monitoring timeout for %s\n", config.DeploymentName)
+            // TIMEOUT = HARD FAILURE (auto-rollback)
+            _, _ = config.DB.Exec(context.Background(), `
+                UPDATE deployments 
+                SET status = 'failed', failure_type = 'hard', 
+                    needs_rollback = true, error_message = 'timeout-5min'
+                WHERE deployment_id = $1
+            `, config.DeploymentID)
+            return
 
-		case <-ticker.C:
-			status, err := GetDeploymentStatus(
-				config.KubeconfigPath,
-				config.ContextName,
-				config.Namespace,
-				config.DeploymentName,
-			)
+        case <-ticker.C:
+            status, err := GetDeploymentStatus(
+                config.KubeconfigPath,
+                config.ContextName,
+                config.Namespace,
+                config.DeploymentName,
+            )
 
-			if err != nil {
-				log.Printf("❌ Failed to get deployment status: %v\n", err)
-				continue
-			}
+            if err != nil {
+                log.Printf("❌ Failed to get deployment status: %v\n", err)
+                continue
+            }
 
-			log.Printf("📊 Deployment %s status: %s\n", config.DeploymentName, status)
+            log.Printf("📊 Deployment %s status: %s\n", config.DeploymentName, status)
 
-			if status == "ready" {
-				log.Printf("✅ Deployment %s is ready!\n", config.DeploymentName)
-				updateDeploymentStatus(config.DB, config.DeploymentID, "ready", "", "", "")
+            if status == "ready" {
+                log.Printf("✅ Deployment %s is ready!\n", config.DeploymentName)
+                updateDeploymentStatus(config.DB, config.DeploymentID, "ready", "", "", "")
 
-				// 🔑 WAIT FOR OLD PODS TO BE FULLY TERMINATED (DYNAMIC LABEL)
-				log.Println("⏳ Waiting for old pods to be cleaned up...")
-				if err := waitForSinglePod(
-					config.KubeconfigPath,
-					config.ContextName,
-					config.Namespace,
-					config.AppLabel, // USE DYNAMIC LABEL
-					30*time.Second,
-				); err != nil {
-					log.Printf("⚠️  Warning: %v\n", err)
-					// Continue anyway after timeout
-				}
+                // Clear failure flags on success
+                _, _ = config.DB.Exec(context.Background(), `
+                    UPDATE deployments SET failure_type = NULL, needs_rollback = false 
+                    WHERE deployment_id = $1
+                `, config.DeploymentID)
 
-				// 🚀 NOW START PORT-FORWARDING (DYNAMIC SERVICE & PORT)
-				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-				log.Println("🔌 STARTING PORT-FORWARD")
-				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                log.Println("⏳ Waiting for old pods to be cleaned up...")
+                if err := waitForSinglePod(
+                    config.KubeconfigPath,
+                    config.ContextName,
+                    config.Namespace,
+                    config.AppLabel,
+                    30*time.Second,
+                ); err != nil {
+                    log.Printf("⚠️  Warning: %v\n", err)
+                }
 
-				err := StartPortForward(
-					config.KubeconfigPath,
-					config.ContextName,
-					config.Namespace,
-					config.ServiceName, // DYNAMIC SERVICE NAME
-					config.ServicePort, // DYNAMIC PORT
-					config.ServicePort, // DYNAMIC PORT
-				)
+                log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                log.Println("🔌 STARTING PORT-FORWARD")
+                log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-				if err != nil {
-					log.Printf("❌ Port-forward failed: %v\n", err)
-				} else {
-					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-					log.Printf("🎉 DEPLOYMENT COMPLETE - PORT %d IS RUNNING\n", config.ServicePort)
-					log.Printf("   Access your app at: http://localhost:%d\n", config.ServicePort)
-					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-				}
+                err := StartPortForward(
+                    config.KubeconfigPath,
+                    config.ContextName,
+                    config.Namespace,
+                    config.ServiceName,
+                    config.ServicePort,
+                    config.ServicePort,
+                )
 
-				return
-			}
+                if err != nil {
+                    log.Printf("❌ Port-forward failed: %v\n", err)
+                } else {
+                    log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    log.Printf("🎉 DEPLOYMENT COMPLETE - PORT %d IS RUNNING\n", config.ServicePort)
+                    log.Printf("   Access your app at: http://localhost:%d\n", config.ServicePort)
+                    log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                }
+                return
+            }
 
 			if status == "failed" {
-				log.Printf("❌ Deployment %s failed\n", config.DeploymentName)
-				updateDeploymentStatus(config.DB, config.DeploymentID, "failed", "", "", "")
+				log.Printf("🚨 %s failed - advanced classification...\n", config.DeploymentName)
+				
+				// Use your existing failure_detector.go
+				classification, err := ClassifyDeploymentFailure(
+					config.KubeconfigPath,
+					config.ContextName,
+					config.Namespace,
+					config.DeploymentName,
+				)
+				if err != nil {
+					classification = &FailureClassification{"soft", "classification-error", true}
+				}
+				
+				// Store classification
+				UpdateDeploymentFailure(config.DB, config.DeploymentID, classification)
+				
+				log.Printf("✅ Classified: %s (%s) - Kubernetes Watcher will handle instantly!", 
+					classification.Type, classification.Reason)
 				return
 			}
-		}
-	}
+
+        }
+    }
 }
 
 // Update deployment status in database
