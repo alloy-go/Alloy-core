@@ -11,6 +11,9 @@ type DeploymentRecord struct {
     Namespace        string    `json:"namespace"`
     DeploymentName   string    `json:"deployment_name"`
     DeploymentType   string    `json:"deployment_type"`
+    CanaryTrack      string    `json:"canary_track"`
+    CanaryStage      *int      `json:"canary_stage"`
+    CanaryTargetReplicas *int  `json:"canary_target_replicas"`
     RollbackFrom     string    `json:"rollback_from"`
     CreatedAt        time.Time `json:"created_at"`
     UpdatedAt        time.Time `json:"updated_at"`

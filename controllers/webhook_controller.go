@@ -122,9 +122,11 @@ func (wc *WebhookController) DeployWebhook(c *gin.Context) {
 	// Create deployment record in database
 	deploymentID := uuid.New().String()
 	_, err = wc.DB.Exec(context.Background(), `
-        INSERT INTO deployments 
-        (deployment_id, project_id, commit_sha, image_tag, status, namespace, deployment_name)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+       INSERT INTO deployments (
+	   deployment_id, project_id, commit_sha, image_tag, status, 
+	   namespace, deployment_name, deployment_type, canary_track, 
+	   canary_target_replicas, canary_stage 
+	   ) VALUES ($1, $2, $3, $4, 'pending', $5, $6, 'canary', 'canary', $7, 0)
     `, deploymentID, payload.ProjectID, payload.CommitSHA, payload.ImageTag, "pending", namespace, deploymentObj.Metadata.Name)
 
 	if err != nil {
