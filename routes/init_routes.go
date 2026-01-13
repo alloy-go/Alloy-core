@@ -21,7 +21,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 
 	webhookRouter := api.Group("/webhook")
 	{
-		webhookRouter.POST("/deploy-fail", deployController.DeployWebhook)
-		webhookRouter.POST("/deploy", deployController.DeployWebhookFailTest)
+		webhookRouter.POST("/deploy", deployController.DeployWebhook)
+		webhookRouter.POST("/deploy-fail-test", deployController.DeployWebhookFailTest)
 	}
 }
