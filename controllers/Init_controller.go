@@ -1,31 +1,119 @@
 package controllers
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
+
+	"github.com/Santhoshkumar044/MiniMon/utils"
 )
 
 type InitController struct {
-	DB *pgxpool.Pool
+	AuthService    *utils.AuthService
+	ProjectService *utils.ProjectService
 }
 
-func NewInitController(db *pgxpool.Pool) *InitController {
-	return &InitController{DB: db}
+func NewInitController(
+	auth *utils.AuthService,
+	project *utils.ProjectService,
+) *InitController {
+	return &InitController{
+		AuthService:    auth,
+		ProjectService: project,
+	}
 }
 
-func (ic *InitController) SignupAndCreateProject(c *gin.Context) {
-	ctx := context.Background()
+//
+// --------------------
+// SIGNUP (UI)
+// POST /auth/signup
+// --------------------
+//
+func (ic *InitController) Signup(c *gin.Context) {
+	ctx := c.Request.Context()
 
 	var req struct {
-		Username       string `json:"username"`
-		Email          string `json:"email"`
-		Password       string `json:"password"`
-		Token          string `json:"token"`
-		ConfigPath     string `json:"config_path"`
+		Username   string `json:"username"`
+		Email      string `json:"email"`
+		Password   string `json:"password"`
+		Token      string `json:"token"`
+		ConfigPath string `json:"config_path"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, err := ic.AuthService.Signup(
+		ctx,
+		req.Username,
+		req.Email,
+		req.Password,
+		req.Token,
+		req.ConfigPath,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "signup failed",
+		})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"user_id": userID,
+	})
+}
+
+//
+// --------------------
+// LOGIN (UI)
+// POST /auth/login
+// --------------------
+//
+func (ic *InitController) Login(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID, err := ic.AuthService.Login(
+		ctx,
+		req.Username,
+		req.Password,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "invalid credentials",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id": userID,
+	})
+}
+
+//
+// --------------------
+// CREATE PROJECT (UI)
+// POST /projects
+// --------------------
+//
+func (ic *InitController) CreateProject(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var req struct {
+		UserID         string `json:"user_id"`
 		ProjectName    string `json:"project_name"`
 		DeploymentType string `json:"deployment_type"`
 		ContextName    string `json:"context_name"`
@@ -36,46 +124,43 @@ func (ic *InitController) SignupAndCreateProject(c *gin.Context) {
 		return
 	}
 
-	hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
-
-	var userID string
-	err := ic.DB.QueryRow(ctx, `
-		INSERT INTO users (username, email, password_hash, token, config_path)
-		VALUES ($1,$2,$3,$4,$5)
-		RETURNING user_id
-	`,
-		req.Username, req.Email, string(hash), req.Token, req.ConfigPath,
-	).Scan(&userID)
-
-	if err != nil {
-		c.JSON(500, gin.H{"error": "user creation failed"})
-		return
-	}
-
-	_, err = ic.DB.Exec(ctx, `
-		INSERT INTO projects (user_id, project_name, deployment_type, context_name)
-		VALUES ($1,$2,$3,$4)
-	`,
-		userID, req.ProjectName, req.DeploymentType, req.ContextName,
+	err := ic.ProjectService.CreateProject(
+		ctx,
+		req.UserID,
+		req.ProjectName,
+		req.DeploymentType,
+		req.ContextName,
 	)
 
 	if err != nil {
-		c.JSON(500, gin.H{"error": "project creation failed"})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "project creation failed",
+		})
 		return
 	}
 
-	c.JSON(201, gin.H{
-		"message": "Init completed successfully",
-		"user_id": userID,
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "project created successfully",
 	})
 }
 
-func (ic *InitController) LoginAndCreateProject(c *gin.Context) {
-	ctx := context.Background()
+// COMBINED INIT (CLI)
+// POST /init
+
+func (ic *InitController) Init(c *gin.Context) {
+	ctx := c.Request.Context()
 
 	var req struct {
-		Username       string `json:"username"`
-		Password       string `json:"password"`
+		Mode string `json:"mode"` // signup | login
+
+		// auth
+		Username   string `json:"username"`
+		Email      string `json:"email"`
+		Password   string `json:"password"`
+		Token      string `json:"token"`
+		ConfigPath string `json:"config_path"`
+
+		// project
 		ProjectName    string `json:"project_name"`
 		DeploymentType string `json:"deployment_type"`
 		ContextName    string `json:"context_name"`
@@ -86,29 +171,49 @@ func (ic *InitController) LoginAndCreateProject(c *gin.Context) {
 		return
 	}
 
-	var userID, hash string
-	err := ic.DB.QueryRow(ctx,
-		`SELECT user_id, password_hash FROM users WHERE username=$1`,
-		req.Username,
-	).Scan(&userID, &hash)
+	var (
+		userID string
+		err    error
+	)
 
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
-		c.JSON(401, gin.H{"error": "invalid credentials"})
+	// Decide flow for CLI
+	if req.Mode == "signup" {
+		userID, err = ic.AuthService.Signup(
+			ctx,
+			req.Username,
+			req.Email,
+			req.Password,
+			req.Token,
+			req.ConfigPath,
+		)
+	} else {
+		userID, err = ic.AuthService.Login(
+			ctx,
+			req.Username,
+			req.Password,
+		)
+	}
+
+	if err != nil {
+		c.JSON(401, gin.H{"error": "authentication failed"})
 		return
 	}
 
-	_, err = ic.DB.Exec(ctx, `
-		INSERT INTO projects (user_id, project_name, deployment_type, context_name)
-		VALUES ($1,$2,$3,$4)
-	`, userID, req.ProjectName, req.DeploymentType, req.ContextName)
+	err = ic.ProjectService.CreateProject(
+		ctx,
+		userID,
+		req.ProjectName,
+		req.DeploymentType,
+		req.ContextName,
+	)
 
 	if err != nil {
 		c.JSON(500, gin.H{"error": "project creation failed"})
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"message": "Init completed",
+	c.JSON(201, gin.H{
+		"message": "minimon initialized successfully",
 		"user_id": userID,
 	})
 }
