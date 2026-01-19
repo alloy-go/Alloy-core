@@ -42,6 +42,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	project := api.Group("/projects")
 	{
 		project.POST("", initController.CreateProject)
+		project.GET("/:user_id",initController.GetUserProjects)
 	}
 
 	// CLI route (minimon init)

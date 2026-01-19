@@ -217,3 +217,22 @@ func (ic *InitController) Init(c *gin.Context) {
 		"user_id": userID,
 	})
 }
+
+func (ic *InitController) GetUserProjects(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	userID := c.Param("user_id") // get user ID from URL path
+	if userID == "" {
+		c.JSON(400, gin.H{"error": "user_id is required"})
+		return
+	}
+
+	projects, err := ic.ProjectService.GetProjectsByUser(ctx, userID) // use existing service
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to fetch projects"})
+		return
+	}
+
+	c.JSON(200, gin.H{"projects": projects})
+}
+
