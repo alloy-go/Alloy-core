@@ -1,9 +1,12 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Santhoshkumar044/MiniMon/utils"
 )
@@ -23,12 +26,10 @@ func NewInitController(
 	}
 }
 
-//
 // --------------------
 // SIGNUP (UI)
 // POST /auth/signup
 // --------------------
-//
 func (ic *InitController) Signup(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -55,8 +56,32 @@ func (ic *InitController) Signup(c *gin.Context) {
 	)
 
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			// 23505 is unique constraint violation
+			if pgErr.Code == "23505" {
+				if strings.Contains(pgErr.ConstraintName, "email") ||
+					strings.Contains(pgErr.Detail, "email") {
+					c.JSON(http.StatusConflict, gin.H{
+						"error": "Email already exists",
+					})
+					return
+				}
+				if strings.Contains(pgErr.ConstraintName, "username") ||
+					strings.Contains(pgErr.Detail, "username") {
+					c.JSON(http.StatusConflict, gin.H{
+						"error": "Username already exists",
+					})
+					return
+				}
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "Record already exists",
+				})
+				return
+			}
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "signup failed",
+			"error": "Signup failed",
 		})
 		return
 	}
@@ -66,12 +91,10 @@ func (ic *InitController) Signup(c *gin.Context) {
 	})
 }
 
-//
 // --------------------
 // LOGIN (UI)
 // POST /auth/login
 // --------------------
-//
 func (ic *InitController) Login(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -103,12 +126,10 @@ func (ic *InitController) Login(c *gin.Context) {
 	})
 }
 
-//
 // --------------------
 // CREATE PROJECT (UI)
 // POST /projects
 // --------------------
-//
 func (ic *InitController) CreateProject(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -235,4 +256,3 @@ func (ic *InitController) GetUserProjects(c *gin.Context) {
 
 	c.JSON(200, gin.H{"projects": projects})
 }
-
