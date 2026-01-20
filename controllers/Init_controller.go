@@ -5,10 +5,14 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"context"
+	"log"
+
 	"github.com/Santhoshkumar044/MiniMon/utils"
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type InitController struct {
@@ -255,4 +259,74 @@ func (ic *InitController) GetUserProjects(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"projects": projects})
+}
+
+type UpdateStrategyRequest struct {
+	Strategy string `json:"strategy" binding:"required,oneof=auto rollout canary"`
+}
+
+// Add this helper to ProjectService if you want
+type ProjectService struct {
+	DB *pgxpool.Pool
+}
+
+// UpdateDeploymentStrategy allows users to set their preferred deployment strategy
+func (ic *InitController) UpdateDeploymentStrategy(c *gin.Context) {
+	projectID := c.Param("project_id")
+
+	var req UpdateStrategyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{
+			"error": "Invalid strategy. Must be one of: auto, rollout, canary",
+		})
+		return
+	}
+
+	// Update project strategy
+	result, err := ic.ProjectService.DB.Exec(context.Background(), `
+		UPDATE projects 
+		SET deployment_strategy = $1, updated_at = NOW()
+		WHERE project_id = $2
+	`, req.Strategy, projectID)
+
+	if err != nil {
+		log.Printf("❌ Failed to update deployment strategy: %v", err)
+		c.JSON(500, gin.H{"error": "Database error"})
+		return
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		c.JSON(404, gin.H{"error": "Project not found"})
+		return
+	}
+
+	log.Printf("✅ Project %s deployment strategy updated to: %s", projectID, req.Strategy)
+
+	c.JSON(200, gin.H{
+		"project_id": projectID,
+		"strategy":   req.Strategy,
+		"message":    getStrategyDescription(req.Strategy),
+	})
+}
+
+func getStrategyDescription(strategy string) string {
+	descriptions := map[string]string{
+		"auto":    "Automatic strategy selection (rollout for first deploy, canary for updates)",
+		"rollout": "Direct rolling updates for all deployments (faster, higher risk)",
+		"canary":  "Progressive canary deployments for all updates (safer, slower)",
+	}
+	return descriptions[strategy]
+}
+
+func (ps *ProjectService) GetProjectStrategy(projectID string) (string, error) {
+	var strategy string
+	err := ps.DB.QueryRow(context.Background(), `
+		SELECT deployment_strategy FROM projects WHERE project_id = $1
+	`, projectID).Scan(&strategy)
+
+	if err != nil {
+		return "auto", err
+	}
+	return strategy, nil
 }
