@@ -25,8 +25,8 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 		projectService,
 	)
 
-	deployController := controllers.NewWebhookController(db)
-	canaryController := controllers.NewCanaryController(db)
+	// NEW: Unified deployment controller
+	deployController := controllers.NewDeploymentController(db)
 
 	// --------------------
 	// INIT ROUTES
@@ -53,8 +53,25 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	// --------------------
 	webhookRouter := api.Group("/webhook")
 	{
-		webhookRouter.POST("/deploy", deployController.DeployWebhook)
-		webhookRouter.POST("/deploy/canary", canaryController.CanaryDeployWebhook)
-		webhookRouter.POST("/deploy-fail-test", deployController.DeployWebhookFailTest)
+		// MAIN ENDPOINT - Auto-detects strategy
+		webhookRouter.POST("/deploy", deployController.Deploy)
+		
+		// Legacy endpoints (optional - for backward compatibility)
+		webhookRouter.POST("/deploy/rollout", deployController.DeployRollout)
+		webhookRouter.POST("/deploy/canary", deployController.DeployCanary)
+		
+		// Test endpoint
+		webhookRouter.POST("/deploy-fail-test", deployController.DeployFailTest)
+	}
+
+	// --------------------
+	// DEPLOYMENT STATUS & MANAGEMENT
+	// --------------------
+	deploymentsRouter := api.Group("/deployments")
+	{
+		deploymentsRouter.GET("/:deployment_id", deployController.GetDeploymentStatus)
+		deploymentsRouter.GET("/project/:project_id", deployController.GetProjectDeployments)
+		deploymentsRouter.POST("/:deployment_id/promote", deployController.PromoteCanary)
+		deploymentsRouter.POST("/:deployment_id/abort", deployController.AbortCanary)
 	}
 }
