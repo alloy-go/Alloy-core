@@ -179,23 +179,17 @@ func PromoteStableByUpdatingExisting(kubeconfigPath, contextName, namespace, sta
 }
 
 func promoteCanaryToStable(db *pgxpool.Pool, config CanaryPipelineConfig) {
-	log.Println("🚀 PROMOTING TO PRODUCTION...")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("🚀 PROMOTING CANARY TO PRODUCTION")
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// Update stable deployment with new image (WITHOUT changing selector)
-	// This avoids "selector is immutable" error
-	// stableYAML := updateStableDeploymentImage(config.DeploymentYAML,
-	//     config.ImageTag, config.StableReplicas)
-
-	// if err := ApplyYAML(config.KubeconfigPath, config.ContextName, stableYAML); err != nil {
-	//     log.Printf("❌ Failed to promote to stable: %v", err)
-	//     UpdateCanaryErrmsg(db, config.CanaryDeploymentID, "promotion-failed")
-	//     return
-	// }
+	// STEP 1: Update stable deployment with new image
+	log.Printf("📝 Updating stable deployment '%s' to image: %s", config.DeploymentName, config.ImageTag)  
 	if err := PromoteStableByUpdatingExisting(
 		config.KubeconfigPath,
 		config.ContextName,
 		config.Namespace,
-		config.DeploymentName, // "student-app"
+		config.DeploymentName,
 		config.ImageTag,
 		config.StableReplicas,
 	); err != nil {
@@ -206,33 +200,110 @@ func promoteCanaryToStable(db *pgxpool.Pool, config CanaryPipelineConfig) {
 
 	log.Printf("✅ Stable deployment updated to %s", config.ImageTag)
 
-	// Cleanup canary - scale to 0
+	// STEP 2:WAIT for stable deployment to be ready BEFORE cleanup
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Printf("⏳ Waiting for stable deployment '%s' to be ready...", config.DeploymentName)
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	deadline := time.Now().Add(5 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	stableReady := false                                                  
+	for time.Now().Before(deadline) {
+		status, err := GetDeploymentStatus(
+			config.KubeconfigPath,
+			config.ContextName,
+			config.Namespace,
+			config.DeploymentName, 
+		)
+
+		if err != nil {
+			log.Printf("⚠️ Status check failed: %v", err)
+			<-ticker.C
+			continue
+		}
+
+		log.Printf("📊 Stable deployment status: %s (%.1f min left)", status, time.Until(deadline).Minutes())
+
+		if status == "ready" {
+			log.Println("✅ Stable deployment is ready!")
+			stableReady = true
+			break
+		}
+
+		if status == "failed" {
+			log.Println("❌ Stable deployment failed!")
+			UpdateCanaryErrmsg(db, config.CanaryDeploymentID, "stable-promotion-failed")
+			return
+		}
+
+		<-ticker.C
+	}
+
+	if !stableReady {
+		log.Println("⏱️ Timeout waiting for stable deployment")
+		UpdateCanaryErrmsg(db, config.CanaryDeploymentID, "stable-promotion-timeout")
+		return
+	}
+
+	// STEP 3:NOW safe to cleanup canary (stable is fully ready)
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Printf("🗑️ Cleaning up canary deployment '%s'...", config.CanaryDeployment)
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
 	cleanupYAML := modifyDeploymentForCanary(config.DeploymentYAML,
 		config.CanaryDeployment, config.ImageTag, 0, "canary")
 	if err := ApplyYAML(config.KubeconfigPath, config.ContextName, cleanupYAML); err != nil {
 		log.Printf("⚠️ Failed to cleanup canary: %v", err)
 		// Don't fail promotion if cleanup fails
+	} else {
+		log.Printf("✅ Canary deployment '%s' scaled to 0", config.CanaryDeployment) 
 	}
 
-	// Update DB
+	// STEP 4: Update database
 	_, _ = db.Exec(context.Background(), `
         UPDATE deployments SET status='ready', canary_track='stable', updated_at=NOW()
         WHERE deployment_id=$1`, config.CanaryDeploymentID)
 
-	log.Printf("🎉 PROMOTED! %s → PRODUCTION", config.ImageTag)
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Printf("🎉 PROMOTION COMPLETE! %s → PRODUCTION", config.ImageTag)
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// STEP 5:Port-forward to STABLE service (wait a bit for canary pods to fully terminate)
+	log.Println("⏳ Waiting 10 seconds for canary pods to terminate...") 
+	time.Sleep(10 * time.Second)                                          
+
 	svcName, svcPort, err := ExtractServiceNameAndPort(config.ServiceYAML)
 	if err != nil {
+		log.Printf("❌ Failed to extract service info: %v", err)
 		return
 	}
+
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	log.Println("🔌 STARTING PORT-FORWARD TO STABLE DEPLOYMENT")
+	log.Printf("   Service: %s", svcName)
+	log.Printf("   Port: %d", svcPort)
+	log.Printf("   Target Deployment: %s (STABLE)", config.DeploymentName)
+	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	err = StartPortForward(
 		config.KubeconfigPath,
 		config.ContextName,
 		config.Namespace,
 		svcName,
-		svcPort, // local port
-		svcPort, // remote port (service port)
+		svcPort,
+		svcPort,
 	)
+
+	if err != nil {                                                       
+		log.Printf("❌ Port-forward failed: %v", err)
+	} else {
+		log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		log.Printf("🎉 DEPLOYMENT COMPLETE - PORT %d IS ACTIVE", svcPort)
+		log.Printf("   Access your app at: http://localhost:%d", svcPort)
+		log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	}
 }
 
 // Helper function to update deployment errors
