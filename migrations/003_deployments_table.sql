@@ -53,3 +53,32 @@ BEGIN
     END IF;
 END;
 $$;
+
+DO $$
+BEGIN
+    -- Drop old constraint if it exists
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_deployments_rollback'
+          AND table_name = 'deployments'
+    ) THEN
+        ALTER TABLE deployments
+        DROP CONSTRAINT fk_deployments_rollback;
+    END IF;
+
+    -- Add constraint only if not exists
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_deployments_rollback'
+          AND table_name = 'deployments'
+    ) THEN
+        ALTER TABLE deployments
+        ADD CONSTRAINT fk_deployments_rollback
+        FOREIGN KEY (rollback_from)
+        REFERENCES deployments(deployment_id)
+        ON DELETE SET NULL;
+    END IF;
+END;
+$$;

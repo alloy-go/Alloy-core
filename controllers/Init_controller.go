@@ -169,6 +169,42 @@ func (ic *InitController) CreateProject(c *gin.Context) {
 	})
 }
 
+//Dellete project
+func (ic *InitController) DeleteProject(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	projectID := c.Param("project_id")
+
+	var req struct {
+		UserID string `json:"user_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil || req.UserID == "" {
+		c.JSON(400, gin.H{
+			"error": "user_id is required",
+		})
+		return
+	}
+
+	err := ic.ProjectService.DeleteProject(
+		ctx,
+		projectID,
+		req.UserID,
+	)
+
+	if err != nil {
+		c.JSON(404, gin.H{
+			"error": "project not found or not authorized",
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"message": "project deleted successfully",
+	})
+}
+
+
 // COMBINED INIT (CLI)
 // POST /init
 

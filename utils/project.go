@@ -148,3 +148,27 @@ func (ps *ProjectService) GetProjectsWithDeploymentInfo(ctx context.Context, use
 
 	return projects, nil
 }
+
+//Delete project
+func (ps *ProjectService) DeleteProject(
+	ctx context.Context,
+	projectID string,
+	userID string,
+) error {
+
+	cmd, err := ps.DB.Exec(ctx, `
+		DELETE FROM projects
+		WHERE project_id = $1
+		  AND user_id = $2
+	`, projectID, userID)
+
+	if err != nil {
+		return err
+	}
+
+	if cmd.RowsAffected() == 0 {
+		return fmt.Errorf("project not found or not owned by user")
+	}
+
+	return nil
+}

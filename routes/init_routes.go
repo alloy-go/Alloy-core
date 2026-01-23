@@ -47,6 +47,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	{
 		project.POST("", initController.CreateProject)
 		project.GET("/:user_id",initController.GetUserProjects)
+		project.DELETE("/:project_id",initController.DeleteProject)
 	}
 
 	users := api.Group("/users")
