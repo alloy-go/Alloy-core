@@ -4,15 +4,9 @@ import { Plus, RefreshCw, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useRouter } from 'next/navigation';
+import {AppHeaderProps} from '@/lib/types';
 
-interface AppHeaderProps {
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
-  onRefresh: () => void;
-  onNewApp: () => void;
-}
-
-export function AppHeader({ searchQuery, onSearchChange, onRefresh, onNewApp }: AppHeaderProps) {
+export function AppHeader({ searchQuery, onSearchChange, onRefresh, onNewApp ,onLogout}: AppHeaderProps) {
   const router = useRouter();
 
   const handleLogout = () => {

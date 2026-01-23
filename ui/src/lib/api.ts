@@ -1,15 +1,6 @@
+import {ProjectsResponse} from "./types"
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:820';
 
-interface ProjectsResponse {
-  projects: Array<{
-    project_id: string;
-    user_id: string;
-    project_name: string;
-    deployment_type: string;
-    context_name: string;
-    created_at: string;
-  }>;
-}
 
 export class APIError extends Error {
   constructor(public status: number, message: string) {

@@ -33,7 +33,6 @@ export function Sidebar({
   const navItems = [
     { icon: LayoutGrid, label: 'Applications', href: '/applications' },
     { icon: Settings, label: 'Settings', href: '/settings' },
-    { icon: User, label: 'Profile', href: '/profile' },
   ];
 
   const healthStatuses = [

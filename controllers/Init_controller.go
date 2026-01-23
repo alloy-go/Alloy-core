@@ -252,7 +252,7 @@ func (ic *InitController) GetUserProjects(c *gin.Context) {
 		return
 	}
 
-	projects, err := ic.ProjectService.GetProjectsByUser(ctx, userID) // use existing service
+	projects, err := ic.ProjectService.GetProjectsWithDeploymentInfo(ctx, userID) // use existing service
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to fetch projects"})
 		return
