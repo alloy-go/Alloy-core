@@ -3,10 +3,12 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
+	services "github.com/Santhoshkumar044/MiniMon/client-go"
 	"github.com/Santhoshkumar044/MiniMon/config"
 	"github.com/Santhoshkumar044/MiniMon/routes"
-	services "github.com/Santhoshkumar044/MiniMon/client-go"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -24,11 +26,20 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.Default()
+	origin := os.Getenv("ORIGIN")
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{origin},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	routes.RegisterRoutes(r, db)
 
-	services.NewDeploymentWatcher(db).Start();
-	
+	services.NewDeploymentWatcher(db).Start()
+
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"Message": "Welcome to Minimon",

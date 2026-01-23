@@ -1,13 +1,18 @@
 package controllers
 
 import (
+	"errors"
 	"net/http"
-	"log"
-	"github.com/gin-gonic/gin"
-	"context"
-	"github.com/Santhoshkumar044/MiniMon/utils"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"context"
+	"log"
+
+	"github.com/Santhoshkumar044/MiniMon/utils"
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type InitController struct {
@@ -25,12 +30,10 @@ func NewInitController(
 	}
 }
 
-//
 // --------------------
 // SIGNUP (UI)
 // POST /auth/signup
 // --------------------
-//
 func (ic *InitController) Signup(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -57,8 +60,32 @@ func (ic *InitController) Signup(c *gin.Context) {
 	)
 
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			// 23505 is unique constraint violation
+			if pgErr.Code == "23505" {
+				if strings.Contains(pgErr.ConstraintName, "email") ||
+					strings.Contains(pgErr.Detail, "email") {
+					c.JSON(http.StatusConflict, gin.H{
+						"error": "Email already exists",
+					})
+					return
+				}
+				if strings.Contains(pgErr.ConstraintName, "username") ||
+					strings.Contains(pgErr.Detail, "username") {
+					c.JSON(http.StatusConflict, gin.H{
+						"error": "Username already exists",
+					})
+					return
+				}
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "Record already exists",
+				})
+				return
+			}
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "signup failed",
+			"error": "Signup failed",
 		})
 		return
 	}
@@ -68,12 +95,10 @@ func (ic *InitController) Signup(c *gin.Context) {
 	})
 }
 
-//
 // --------------------
 // LOGIN (UI)
 // POST /auth/login
 // --------------------
-//
 func (ic *InitController) Login(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -105,12 +130,10 @@ func (ic *InitController) Login(c *gin.Context) {
 	})
 }
 
-//
 // --------------------
 // CREATE PROJECT (UI)
 // POST /projects
 // --------------------
-//
 func (ic *InitController) CreateProject(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -238,7 +261,6 @@ func (ic *InitController) GetUserProjects(c *gin.Context) {
 	c.JSON(200, gin.H{"projects": projects})
 }
 
-
 type UpdateStrategyRequest struct {
 	Strategy string `json:"strategy" binding:"required,oneof=auto rollout canary"`
 }
@@ -247,10 +269,11 @@ type UpdateStrategyRequest struct {
 type ProjectService struct {
 	DB *pgxpool.Pool
 }
+
 // UpdateDeploymentStrategy allows users to set their preferred deployment strategy
 func (ic *InitController) UpdateDeploymentStrategy(c *gin.Context) {
 	projectID := c.Param("project_id")
-	
+
 	var req UpdateStrategyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{
@@ -279,7 +302,7 @@ func (ic *InitController) UpdateDeploymentStrategy(c *gin.Context) {
 	}
 
 	log.Printf("✅ Project %s deployment strategy updated to: %s", projectID, req.Strategy)
-	
+
 	c.JSON(200, gin.H{
 		"project_id": projectID,
 		"strategy":   req.Strategy,
@@ -301,7 +324,7 @@ func (ps *ProjectService) GetProjectStrategy(projectID string) (string, error) {
 	err := ps.DB.QueryRow(context.Background(), `
 		SELECT deployment_strategy FROM projects WHERE project_id = $1
 	`, projectID).Scan(&strategy)
-	
+
 	if err != nil {
 		return "auto", err
 	}
