@@ -16,6 +16,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	// --------------------
 	authService := utils.NewAuthService(db)
 	projectService := utils.NewProjectService(db)
+	userService := utils.NewUserService(db)
 
 	// --------------------
 	// CONTROLLERS
@@ -25,8 +26,11 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 		projectService,
 	)
 
+	userController := controllers.NewUserController(userService)
+
 	// NEW: Unified deployment controller
 	deployController := controllers.NewDeploymentController(db)
+
 
 	// --------------------
 	// INIT ROUTES
@@ -43,6 +47,12 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	{
 		project.POST("", initController.CreateProject)
 		project.GET("/:user_id",initController.GetUserProjects)
+	}
+
+	users := api.Group("/users")
+	{
+		users.GET("/:user_id/view",userController.GetProfile)
+		users.PUT("/:user_id/kubepath/edit",userController.UpdateKubeConfig)
 	}
 
 	// CLI route (minimon init)
