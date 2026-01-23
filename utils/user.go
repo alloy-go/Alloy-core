@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	 "github.com/Santhoshkumar044/MiniMon/models"
+	 "time"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -35,23 +35,28 @@ func (us *UserService) UpdateKubeConfigPath(
 }
 
 // ------------------------
-// GET ALL USERS
+// GET USERS data
 // ------------------------
+type UserProfile struct {
+	UserID     string    `json:"user_id"`
+	Username   string    `json:"username"`
+	Email      string    `json:"email"`
+	ConfigPath string    `json:"config_path"`
+	CreatedAt  time.Time `json:"created_at"`
+}
 
 func (us *UserService) GetUserByID(
 	ctx context.Context,
 	userID string,
-) (*models.User, error) {
+) (*UserProfile, error) {
 
-	var u models.User
+	var u UserProfile
 
 	err := us.DB.QueryRow(ctx, `
 		SELECT 
 			user_id,
 			username,
 			email,
-			password_hash,
-			token,
 			config_path,
 			created_at
 		FROM users
@@ -60,8 +65,6 @@ func (us *UserService) GetUserByID(
 		&u.UserID,
 		&u.Username,
 		&u.Email,
-		&u.PasswordHash,
-		&u.Token,
 		&u.ConfigPath,
 		&u.CreatedAt,
 	)
