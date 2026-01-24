@@ -1,43 +1,55 @@
-# 🎯 Alloy
+<p align="center">
+  <h1 align="center">Alloy</h1>
+  <p align="center">
+    Kubernetes-Native Continuous Deployment Orchestration
+  </p>
 
-### Kubernetes-Native Continuous Deployment Orchestration
+  <p align="center">
+    Safe production releases through progressive delivery and automated rollback
+  </p>
 
-**Safe production releases through automatic rollback and progressive traffic control**
+  <p align="center">
+    <a href="https://github.com/minimon-cd/Alloy-core">
+      <img src="https://img.shields.io/badge/status-active-success" />
+    </a>
+    <a href="https://go.dev">
+      <img src="https://img.shields.io/badge/backend-Go-00ADD8" />
+    </a>
+    <a href="https://kubernetes.io">
+      <img src="https://img.shields.io/badge/platform-Kubernetes-326CE5" />
+    </a>
+    <a href="https://postgresql.org">
+      <img src="https://img.shields.io/badge/database-PostgreSQL-336791" />
+    </a>
+  </p>
 
-[![Status](https://img.shields.io/badge/status-active-success)](https://github.com/minimon-cd/Alloy-core)
-[![Backend](https://img.shields.io/badge/backend-Go-00ADD8)](https://go.dev/)
-[![Platform](https://img.shields.io/badge/platform-Kubernetes-326CE5)](https://kubernetes.io/)
-[![Database](https://img.shields.io/badge/database-PostgreSQL-336791)](https://postgresql.org/)
-
-**[Key Features](#-key-features) • [Architecture](#-architecture) • [Quick Start](#-getting-started) • [CI Integration](#-ci-integration-webhook-based) • [Deployment Strategies](#-deployment-strategies)**
-
-</div>
+  <p align="center">
+    <a href="#key-features">Key Features</a> •
+    <a href="#architecture">Architecture</a> •
+    <a href="#getting-started">Getting Started</a> •
+    <a href="#ci-integration-webhook-based">CI Integration</a> •
+    <a href="#deployment-strategies">Deployment Strategies</a>
+  </p>
+</p>
 
 ---
+## Overview
 
-## 🎯 Problem Statement
+Releasing software frequently to production remains one of the hardest problems in modern infrastructure.
 
-**How do we release frequently to production without breaking running applications?**
+Traditional deployment pipelines often fail at the most critical moment — production rollout. 
 
-Traditional deployment pipelines often fail at the most critical moment — production rollout. Common issues include:
+Teams commonly face issues such as breaking changes discovered too late, immediate full-traffic exposure to untested code, manual rollback under pressure, limited visibility into release health, and blind `kubectl apply` workflows with no automated recovery.
 
-- 💥 Breaking changes discovered too late
-- 🌊 Immediate full-traffic exposure to untested code
-- 🔥 Manual rollback under pressure and time constraints
-- 📊 No visibility into release health metrics
-- 🤷 Blind `kubectl apply` with no automated recovery
+Alloy is a Kubernetes-native continuous deployment orchestration system built to address these challenges.
 
----
+It sits between CI systems and Kubernetes, acting as an intelligent release controller that understands:
 
-## 💡 The Solution
+- what is being deployed
+- how it should be released  
+- when it must be rolled back
 
-**Alloy** is a Kubernetes-native continuous deployment orchestration system designed to prevent last-minute production failures by providing safe releases, automatic rollback, and controlled traffic splitting
-
-Alloy sits between your CI system and Kubernetes, acting as an intelligent release controller that understands:
-
-- ✅ **What** is being deployed
-- 🎛️ **How** it should be deployed
-- 🔄 **When** it should be rolled back
+By introducing progressive traffic control, continuous validation, and automatic rollback, Alloy enables safer production releases without slowing down delivery velocity.
 
 ### Core Philosophy
 
