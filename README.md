@@ -1,8 +1,10 @@
 <p align="center">
-  <h1 align="center">Alloy</h1>
   <p align="center">
+    <img src="assests/Alloy-logo2.svg" width="180" alt="Alloy logo" />
+  </p>  
+  <h2 align="center">
     Alloy - Kubernetes-Native Continuous Deployment Orchestration
-  </p>
+  </h2>
 
   <p align="center">
     Safe production releases through progressive delivery and automated rollback
