@@ -190,7 +190,7 @@ Once a new version passes all health checks:
 
 ## 🔗 CI Integration (Webhook Based)
 
-Alloy integrates with **any CI tool** through a simple HTTP webhook. Once CI completes successfully, the pipeline notifies Alloy to begin deployment orchestration.
+Alloy integrates with **any CI tool** through a simple HTTP/HTTPS webhook. Once CI completes successfully, the pipeline notifies Alloy to begin deployment orchestration.
 
 ### Webhook Endpoint
 
@@ -256,7 +256,7 @@ curl -X POST "http://localhost:8080/api/webhook/deploy" \
 | `project_id` | Project identifier stored in Alloy DB | ✅ Yes |
 | `image_tag` | Container image tag built by CI | ✅ Yes |
 | `commit_sha` | Git commit reference | ✅ Yes |
-| `strategy` | Deployment strategy (`auto`, `rollout`, `canary`) | ⚠️ Optional (default: `auto`) |
+| `strategy` | Deployment strategy (`auto`, `rollout`, `canary`) | Optional (default: `auto`) |
 | `files` | Kubernetes manifests (Secret, Service, Deployment) | ✅ Yes |
 
 > **Note:** The `user_id` and `project_id` must already exist in Alloy's database, created during Docker Compose setup.
@@ -296,8 +296,8 @@ The `auto` strategy provides the best balance:
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/alloy.git
-cd alloy
+git clone https://github.com/minimon-cd/Alloy-core.git
+cd Alloy-core
 ```
 
 **2. Configure environment**
