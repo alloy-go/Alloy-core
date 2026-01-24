@@ -1,6 +1,6 @@
 <p align="center">
   <p align="center">
-    <img src="assests/Alloy.svg" height="300" width="300" alt="Alloy logo" />
+    <img src="assets/Alloy.svg" height="300" width="300" alt="Alloy logo" />
   </p>  
   <h2 align="center">
     Alloy - Kubernetes-Native Continuous Deployment Orchestration
