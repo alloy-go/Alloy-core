@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">Alloy</h1>
   <p align="center">
-    Kubernetes-Native Continuous Deployment Orchestration
+    Alloy - Kubernetes-Native Continuous Deployment Orchestration
   </p>
 
   <p align="center">
@@ -379,6 +379,7 @@ volumes:
 
 ## Why Alloy?
 Deploying is mechanical — releasing is risky.
+
 Alloy manages that risk through progressive delivery and automatic rollback.
 
 ## Alloy vs other tools
