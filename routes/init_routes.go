@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	services "github.com/Santhoshkumar044/MiniMon/client-go"
 	"github.com/Santhoshkumar044/MiniMon/controllers"
 	"github.com/Santhoshkumar044/MiniMon/utils"
 )
@@ -17,6 +18,18 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	authService := utils.NewAuthService(db)
 	projectService := utils.NewProjectService(db)
 	userService := utils.NewUserService(db)
+	
+	// --------------------
+	// Service metrics
+	// --------------------
+
+	metricsService := services.NewMetricsService(
+	db,
+	services.NewKubeMetricsService(),
+	services.NewDORAMetricsService(db),
+)
+
+	metricsController := controllers.NewMetricsController(metricsService)
 
 	// --------------------
 	// CONTROLLERS
@@ -54,6 +67,14 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	{
 		users.GET("/:user_id/view",userController.GetProfile)
 		users.PUT("/:user_id/kubepath/edit",userController.UpdateKubeConfig)
+	}
+
+	//Metrics
+	metrics := api.Group("/metrics/projects/:project_id")
+	{
+		metrics.GET("", metricsController.GetProjectMetrics)           // live
+		metrics.GET("/summary", metricsController.GetProjectMetricsSummary) // cached
+		metrics.POST("refresh",metricsController.RefreshProjectMetrics) //Reload
 	}
 
 	// CLI route (minimon init)
