@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -92,7 +93,7 @@ func (dc *DeploymentController) GetProjectDeployments(c *gin.Context) {
 			CanaryTrack    string
 			ImageTag       string
 			CommitSHA      string
-			CreatedAt      string
+			CreatedAt      time.Time
 		}
 		rows.Scan(&d.ID, &d.Status, &d.DeploymentType, &d.CanaryTrack,
 			&d.ImageTag, &d.CommitSHA, &d.CreatedAt)
@@ -184,9 +185,9 @@ func (dc *DeploymentController) DeployFailTest(c *gin.Context) {
 
 	// Force rollout strategy with bad image for testing
 	payload.Strategy = StrategyRollout
-	
+
 	// You can add image manipulation logic here similar to your original
 	// DeployWebhookFailTest implementation
-	
+
 	dc.Deploy(c)
 }
