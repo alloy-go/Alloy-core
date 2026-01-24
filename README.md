@@ -427,10 +427,9 @@ CI tools lack:
 - 📊 Persistent deployment history
 
 ---
-
 ## 📊 Deployment Flow
 
-```text
+```mermaid
 graph TD
     A[CI Builds Container Image] --> B[CI Triggers Alloy Webhook]
     B --> C[Alloy Validates User & Project]
@@ -442,3 +441,5 @@ graph TD
     H -->|Success| I[Release Promoted to Stable]
     H -->|Failure| J[Automatic Rollback to Previous Version]
 ```
+
+---
