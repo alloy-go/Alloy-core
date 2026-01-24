@@ -29,6 +29,6 @@ func InitDB() *pgxpool.Pool {
 		log.Fatal("Database ping failed:", err)
 	}
 
-	log.Println("Connected to Neon DB successfully")
+	log.Println("Connected to DB successfully")
 	return db
 }
