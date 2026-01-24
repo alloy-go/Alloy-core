@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/minimon-cd/Alloy-core/models"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minimon-cd/Alloy-core/models"
 )
 
 type ProjectService struct {
@@ -85,6 +85,7 @@ func (ps *ProjectService) GetProjectsWithDeploymentInfo(ctx context.Context, use
             GROUP BY d.project_id
         )
         SELECT 
+			p.project_id,
             p.project_name,
             p.deployment_type,
             p.created_at,
@@ -118,6 +119,7 @@ func (ps *ProjectService) GetProjectsWithDeploymentInfo(ctx context.Context, use
 	for rows.Next() {
 		var p models.ProjectWithDeploymentInfo
 		err := rows.Scan(
+			&p.ProjectId,
 			&p.ProjectName,
 			&p.ContextName,
 			&p.CreatedAt,
@@ -149,7 +151,7 @@ func (ps *ProjectService) GetProjectsWithDeploymentInfo(ctx context.Context, use
 	return projects, nil
 }
 
-//Delete project
+// Delete project
 func (ps *ProjectService) DeleteProject(
 	ctx context.Context,
 	projectID string,

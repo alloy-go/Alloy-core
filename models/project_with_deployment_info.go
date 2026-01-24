@@ -3,6 +3,7 @@ package models
 import "time"
 
 type ProjectWithDeploymentInfo struct {
+	ProjectId            string     `json:"project_id"`
 	ProjectName          string     `json:"project_name"`
 	ContextName          string     `json:"context_name"`
 	LatestStatus         *string    `json:"latest_status,omitempty"`

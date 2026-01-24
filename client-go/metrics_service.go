@@ -3,16 +3,17 @@ package services
 import (
 	"context"
 	"time"
+
 	"github.com/jackc/pgx/v5"
-	"github.com/minimon-cd/Alloy-core/models"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minimon-cd/Alloy-core/models"
 )
 
 // MetricsService aggregates metrics from all sources
 type MetricsService struct {
-	db                *pgxpool.Pool
-	kubeService       *KubeMetricsService
-	doraService       *DORAMetricsService
+	db          *pgxpool.Pool
+	kubeService *KubeMetricsService
+	doraService *DORAMetricsService
 }
 
 // NewMetricsService creates a new metrics aggregation service
@@ -28,7 +29,6 @@ func NewMetricsService(
 	}
 }
 
-
 // GetProjectMetrics fetches and aggregates all metrics for a project
 func (s *MetricsService) GetProjectMetrics(
 	ctx context.Context,
@@ -43,7 +43,7 @@ func (s *MetricsService) GetProjectMetrics(
 	req := models.MetricsRequest{
 		ProjectID:      projectID,
 		ProjectName:    projectInfo.ProjectName,
-		DeploymentName: projectInfo.DeploymentName,
+		DeploymentName: projectInfo.ProjectName,
 		Namespace:      projectInfo.Namespace,
 		KubeConfig:     projectInfo.KubeConfig,
 	}
@@ -85,18 +85,17 @@ func (s *MetricsService) GetProjectMetrics(
 	}, nil
 }
 
-
 // projectInfoResult holds project and deployment info from DB
 type projectInfoResult struct {
-	ProjectName          string
-	DeploymentName       string
-	Namespace            string
-	LatestDeploymentID   string
-	LatestStatus         string
-	LatestImageTag       string
-	LatestCommitSHA      string
-	DeployedAt           time.Time
-	KubeConfig           models.KubeConfig
+	ProjectName        string
+	DeploymentName     string
+	Namespace          string
+	LatestDeploymentID string
+	LatestStatus       string
+	LatestImageTag     string
+	LatestCommitSHA    string
+	DeployedAt         time.Time
+	KubeConfig         models.KubeConfig
 }
 
 // getProjectInfo retrieves project details and latest deployment from DB
@@ -156,7 +155,7 @@ func (s *MetricsService) calculateHealth(
 	if k8s.Pods.Total > 0 {
 		readyPercent :=
 			float64(k8s.Pods.Ready) /
-			float64(k8s.Pods.Total) * 100
+				float64(k8s.Pods.Total) * 100
 
 		if readyPercent < 50 {
 			score -= 40
@@ -294,7 +293,6 @@ func (s *MetricsService) GetProjectMetricsSummary(
 
 	return &summary, nil
 }
-
 
 func nullUUID(id string) *string {
 	if id == "" {
