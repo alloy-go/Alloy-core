@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Santhoshkumar044/MiniMon/models"
+	"github.com/minimon-cd/Alloy-core/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

@@ -1,4 +1,4 @@
-module github.com/Santhoshkumar044/MiniMon
+module github.com/minimon-cd/Alloy-core
 
 go 1.25.0
 

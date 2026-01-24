@@ -4,9 +4,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	services "github.com/Santhoshkumar044/MiniMon/client-go"
-	"github.com/Santhoshkumar044/MiniMon/controllers"
-	"github.com/Santhoshkumar044/MiniMon/utils"
+	services "github.com/minimon-cd/Alloy-core/client-go"
+	"github.com/minimon-cd/Alloy-core/controllers"
+	"github.com/minimon-cd/Alloy-core/utils"
 )
 
 func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {

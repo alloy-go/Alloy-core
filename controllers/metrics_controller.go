@@ -3,7 +3,7 @@ package controllers
 import (
 	"log"
 	"net/http"
-	 services "github.com/Santhoshkumar044/MiniMon/client-go"
+	 services "github.com/minimon-cd/Alloy-core/client-go"
 	"github.com/gin-gonic/gin"
 )
 

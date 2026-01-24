@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	services "github.com/Santhoshkumar044/MiniMon/client-go"
-	"github.com/Santhoshkumar044/MiniMon/config"
-	"github.com/Santhoshkumar044/MiniMon/routes"
+	services "github.com/minimon-cd/Alloy-core/client-go"
+	"github.com/minimon-cd/Alloy-core/config"
+	"github.com/minimon-cd/Alloy-core/routes"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -42,7 +42,7 @@ func main() {
 
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"Message": "Welcome to Minimon",
+			"Message": "Welcome to Alloy-core",
 		})
 	})
 

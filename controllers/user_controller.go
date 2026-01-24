@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	"github.com/Santhoshkumar044/MiniMon/utils"
+	"github.com/minimon-cd/Alloy-core/utils"
 	"github.com/gin-gonic/gin"
 )
 

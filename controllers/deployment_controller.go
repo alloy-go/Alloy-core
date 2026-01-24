@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	services "github.com/Santhoshkumar044/MiniMon/client-go"
+	services "github.com/minimon-cd/Alloy-core/client-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
