@@ -4,7 +4,7 @@
 
 **Safe production releases through automatic rollback and progressive traffic control**
 
-[![Status](https://img.shields.io/badge/status-active-success)](https://github.com/yourusername/alloy)
+[![Status](https://img.shields.io/badge/status-active-success)](https://github.com/minimon-cd/Alloy-core)
 [![Backend](https://img.shields.io/badge/backend-Go-00ADD8)](https://go.dev/)
 [![Platform](https://img.shields.io/badge/platform-Kubernetes-326CE5)](https://kubernetes.io/)
 [![Database](https://img.shields.io/badge/database-PostgreSQL-336791)](https://postgresql.org/)
@@ -17,7 +17,7 @@
 
 ## 🎯 Problem Statement
 
-**How do we release frequently to production without breaking running applications?** [web:20]
+**How do we release frequently to production without breaking running applications?**
 
 Traditional deployment pipelines often fail at the most critical moment — production rollout. Common issues include:
 
@@ -31,7 +31,7 @@ Traditional deployment pipelines often fail at the most critical moment — prod
 
 ## 💡 The Solution
 
-**Alloy** is a Kubernetes-native continuous deployment orchestration system designed to prevent last-minute production failures by providing safe releases, automatic rollback, and controlled traffic splitting [web:20][web:21].
+**Alloy** is a Kubernetes-native continuous deployment orchestration system designed to prevent last-minute production failures by providing safe releases, automatic rollback, and controlled traffic splitting
 
 Alloy sits between your CI system and Kubernetes, acting as an intelligent release controller that understands:
 
@@ -43,17 +43,17 @@ Alloy sits between your CI system and Kubernetes, acting as an intelligent relea
 
 > **CI builds artifacts. Alloy decides how they reach production.**
 
-The orchestrator ensures every deployment is verified progressively and can automatically fall back to a stable version when something goes wrong [web:21].
+The orchestrator ensures every deployment is verified progressively and can automatically fall back to a stable version when something goes wrong
 
 ---
 
 ## 🚀 Key Features
 
-- **🎛️ Kubernetes-Native Design** — Built with official `client-go` SDK for real-time cluster communication [web:20]
+- **🎛️ Kubernetes-Native Design** — Built with official `client-go` SDK for real-time cluster communication
 - **🛡️ Automatic Rollback on Failure** — Detects issues and reverts to last known stable version instantly
-- **📊 Progressive Traffic Splitting** — Gradually shifts traffic through canary stages (17% → 50% → 83% → 100%) [web:21]
-- **🎯 Canary Deployments** — Minimize blast radius with stage-based rollouts [web:21]
-- **🔄 Rolling Updates** — Zero-downtime releases with built-in rollback support [web:20]
+- **📊 Progressive Traffic Splitting** — Gradually shifts traffic through canary stages (17% → 50% → 83% → 100%)
+- **🎯 Canary Deployments** — Minimize blast radius with stage-based rollouts 
+- **🔄 Rolling Updates** — Zero-downtime releases with built-in rollback support
 - **💾 Stable Version Promotion** — Persistent release memory ensures known good state at all times
 - **🔗 Webhook-Driven** — Native integration with any CI tool (GitHub Actions, GitLab CI, Jenkins, CircleCI)
 - **🌐 API-First Control** — RESTful API for centralized release orchestration
@@ -62,7 +62,7 @@ The orchestrator ensures every deployment is verified progressively and can auto
 
 ## 🏗 Architecture
 
-Alloy follows a controller-style architecture similar to native Kubernetes components [web:20].
+Alloy follows a controller-style architecture similar to native Kubernetes components.
 
 ### High-Level Flow
 
@@ -101,14 +101,14 @@ Alloy follows a controller-style architecture similar to native Kubernetes compo
 
 1. **Trigger** — CI system completes build/tests and sends webhook to Alloy
 2. **Validate** — Alloy verifies project and release metadata from database
-3. **Orchestrate** — Communicates with Kubernetes using `client-go` SDK (not shell-based) [web:20]
+3. **Orchestrate** — Communicates with Kubernetes using `client-go` SDK (not shell-based) 
 4. **Monitor** — Continuously observes live cluster state (pod readiness, availability)
 5. **React** — Makes deployment decisions in real-time without polling delays
 6. **Decide** — Promotes to stable or executes automatic rollback based on health data
 
 ### Key Architectural Benefits
 
-The orchestrator **does not replace Kubernetes** — it **controls Kubernetes resources intelligently** [web:20].
+The orchestrator **does not replace Kubernetes** — it **controls Kubernetes resources intelligently**.
 
 All communication happens via the official Kubernetes API layer, allowing Alloy to:
 - Read live pod status in real-time
@@ -122,7 +122,7 @@ All communication happens via the official Kubernetes API layer, allowing Alloy 
 
 ### 1. Rolling Deployment
 
-Standard zero-downtime deployment that gradually replaces old pods with new ones while maintaining service availability [web:20].
+Standard zero-downtime deployment that gradually replaces old pods with new ones while maintaining service availability.
 
 **Use case:** Routine updates with minimal risk
 
@@ -133,22 +133,22 @@ Standard zero-downtime deployment that gradually replaces old pods with new ones
 
 ---
 
-### 2. Canary Deployment
+### 2. Progressive Canary Deployments
 
-Deploys new version alongside stable and routes a small percentage of traffic, gradually increasing exposure based on health metrics [web:21][web:23].
+Deploys new version alongside stable and routes a small percentage of traffic, gradually increasing exposure based on health metrics.
 
 **Use case:** High-risk or critical production releases
 
 **Traffic Progression:**
 ```
-10% → 25% → 50% → 100%
+17% → 50% → 80% → 100%
 ```
 
-If metrics degrade at any step, **rollback is triggered automatically** [web:21].
+If metrics degrade at any step, **rollback is triggered automatically**.
 
 #### Canary Traffic Model
 
-Alloy uses stage-based canary progression with automated health verification at each stage [web:21][web:23]:
+Alloy uses stage-based canary progression with automated health verification at each stage:
 
 | Stage | Replicas | Traffic % | Observation Window |
 |-------|----------|-----------|-------------------|
@@ -175,7 +175,7 @@ var canaryStages = []CanaryStage{
 5. Promote to stable on success
 6. **Roll back immediately on failure**
 
-This staged approach minimizes blast radius while allowing fast promotion [web:21].
+This staged approach minimizes blast radius while allowing fast promotion.
 
 ---
 
@@ -365,9 +365,12 @@ volumes:
 
 ---
 
-## 🆚 Why Alloy?
+## Why Alloy?
+Deploying is mechanical — releasing is risky.
+Alloy manages that risk through progressive delivery and automatic rollback.
 
-### vs. Direct `kubectl apply`
+## Alloy vs other tools
+### Alloy vs. Direct `kubectl apply`
 
 **Problem with kubectl:**
 - Blind updates with no health awareness
@@ -376,11 +379,11 @@ volumes:
 - No deployment memory
 - Failure handling is completely manual
 
-**Alloy introduces decision-making on top of Kubernetes** [web:20].
+**Alloy introduces decision-making on top of Kubernetes**.
 
 ---
 
-### vs. Pure CI Pipelines
+### Alloy vs. Pure CI Pipelines
 
 CI systems are designed to:
 - ✅ Build artifacts
@@ -401,23 +404,11 @@ CI tools lack:
 
 ---
 
-### vs. Argo Rollouts
-
-| Area | Argo Rollouts | Alloy |
-|------|---------------|-------|
-| **Trigger Model** | GitOps | Webhook-based |
-| **CI Integration** | Indirect | Native |
-| **Release Memory** | Limited | Persistent DB |
-| **Decision Logic** | Declarative | Programmatic |
-| **Primary Goal** | Rollout mechanics | Release orchestration |
-
-**Argo Rollouts** focuses on deployment mechanics within GitOps workflows.
-
-**Alloy** focuses on release orchestration with CI-driven, API-first control.
+**Alloy** is designed for CI-driven environments, where CI systems trigger deployments while Alloy controls the entire release process.
 
 ### Alloy is Ideal For Teams That Need:
 
-- 🎯 CI-driven deployments
+- 🎯 CI-driven deployments environments
 - 🔌 API-first control
 - 🧠 Centralized release logic
 - 🛡️ Automatic recovery mechanisms
@@ -427,7 +418,7 @@ CI tools lack:
 
 ## 📊 Deployment Flow
 
-```mermaid
+```text
 graph TD
     A[CI Builds Container Image] --> B[CI Triggers Alloy Webhook]
     B --> C[Alloy Validates User & Project]
@@ -439,17 +430,3 @@ graph TD
     H -->|Success| I[Release Promoted to Stable]
     H -->|Failure| J[Automatic Rollback to Previous Version]
 ```
-
----
-
-## 🗺️ Roadmap
-
-- [ ] **Multi-cluster support** — Deploy across multiple Kubernetes clusters
-- [ ] **Slack/Discord notifications** — Real-time deployment status updates
-- [ ] **Custom health check plugins** — Extensible health verification
-- [ ] **Blue-Green deployment strategy** — Complete environment switching
-- [ ] **Metrics integration** — Prometheus/Grafana dashboards
-- [ ] **RBAC support** — Role-based access control for deployments
-- [ ] **Web UI dashboard** — Visual deployment monitoring and control
-
----
