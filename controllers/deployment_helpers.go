@@ -158,10 +158,11 @@ func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 	_, err = dc.DB.Exec(context.Background(), `
 		UPDATE deployments stable
 		SET
-			image_tag  = canary.image_tag,
-			commit_sha = canary.commit_sha,
-			updated_at = NOW(),
-			status     = 'ready'
+			image_tag   = canary.image_tag,
+			commit_sha  = canary.commit_sha,
+			deployed_at = NOW(),
+			updated_at  = NOW(),
+			status      = 'ready'
 		FROM deployments canary
 		WHERE
 			stable.project_id = canary.project_id
