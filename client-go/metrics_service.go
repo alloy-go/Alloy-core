@@ -200,7 +200,7 @@ func (s *MetricsService) getProjectInfo(ctx context.Context, projectID string) (
 			COALESCE(d.status, ''),
 			COALESCE(d.image_tag, ''),
 			COALESCE(d.commit_sha, ''),
-			COALESCE(d.created_at, NOW())
+			COALESCE(d.updated_at,d.created_at, NOW())
 		FROM projects p
 		JOIN users u ON p.user_id = u.user_id
 		LEFT JOIN LATERAL (
