@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"time"
-
+	 "github.com/minimon-cd/Alloy-core/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -77,6 +77,52 @@ func StartCanaryPipeline(db *pgxpool.Pool, config CanaryPipelineConfig) {
 	promoteCanaryToStable(db, config)
 }
 
+func captureCanarySnapshotHelper(
+	db *pgxpool.Pool,
+	cfg CanaryPipelineConfig,
+	stage int,
+) {
+	// Get project info for kubeconfig
+	var configPath, contextName string
+	var projectID string
+	
+	err := db.QueryRow(context.Background(), `
+		SELECT p.project_id, u.config_path, p.context_name
+		FROM deployments d
+		JOIN projects p ON d.project_id = p.project_id
+		JOIN users u ON p.user_id = u.user_id
+		WHERE d.deployment_id = $1
+	`, cfg.CanaryDeploymentID).Scan(&projectID, &configPath, &contextName)
+	
+	if err != nil {
+		log.Printf("⚠️  Failed to get project info for snapshot: %v", err)
+		return
+	}
+	
+	kubeService := NewKubeMetricsService()
+	canaryService := NewCanaryMetricsService(db, kubeService)
+	
+	kubeConfig := models.KubeConfig{
+		KubeconfigPath: configPath,
+		ContextName:    contextName,
+		Namespace:      cfg.Namespace,
+	}
+	
+	err = canaryService.CaptureCanarySnapshot(
+		context.Background(),
+		cfg.CanaryDeploymentID,
+		projectID,
+		cfg.CanaryDeployment,
+		cfg.Namespace,
+		stage,
+		kubeConfig,
+	)
+	
+	if err != nil {
+		log.Printf("⚠️  Failed to capture canary snapshot: %v", err)
+	}
+}
+
 func canaryStagePass(db *pgxpool.Pool, config CanaryPipelineConfig, stageIdx int, stage CanaryStage) bool {
 	// 1. Update DB stage
 	_, _ = db.Exec(context.Background(), `
@@ -100,6 +146,8 @@ func canaryStagePass(db *pgxpool.Pool, config CanaryPipelineConfig, stageIdx int
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
+	snapshotCaptured := false // Track if we've captured snapshot
+
 	for time.Now().Before(deadline) {
 		status, err := GetDeploymentStatus(config.KubeconfigPath, config.ContextName,
 			config.Namespace, config.CanaryDeployment)
@@ -111,12 +159,19 @@ func canaryStagePass(db *pgxpool.Pool, config CanaryPipelineConfig, stageIdx int
 
 		log.Printf("📊 Canary: %s (%.1f min left)", status, time.Until(deadline).Minutes())
 
-		if status == "ready" {
+		// 🎯 CAPTURE SNAPSHOT ONCE WHEN PODS ARE READY
+		if status == "ready" && !snapshotCaptured {
+			log.Printf("📸 Capturing metrics snapshot for stage %d", stageIdx)
+			captureCanarySnapshotHelper(db, config, stageIdx)
+			snapshotCaptured = true
+			
+			// Mark stage as passed
 			_, _ = db.Exec(context.Background(),
 				`UPDATE deployments SET status='stage_passed' WHERE deployment_id=$1`,
 				config.CanaryDeploymentID)
 			return true
 		}
+		
 		if status == "failed" {
 			UpdateCanaryErrmsg(db, config.CanaryDeploymentID, fmt.Sprintf("stage-%d-failed", stageIdx))
 			return false
@@ -130,7 +185,24 @@ func canaryStagePass(db *pgxpool.Pool, config CanaryPipelineConfig, stageIdx int
 }
 
 func abortCanary(db *pgxpool.Pool, config CanaryPipelineConfig) {
-	log.Println("🛑 ABORTING CANARY DEPLOYMENT...")
+	log.Println("ABORTING CANARY DEPLOYMENT...")
+
+	//FINALIZE CANARY METRICS AS FAILED
+	log.Println("📸 Finalizing canary metrics as failed...")
+	kubeService := NewKubeMetricsService()
+	canaryService := NewCanaryMetricsService(db, kubeService)
+	
+	err := canaryService.FinalizeCanaryResult(
+		context.Background(),
+		config.CanaryDeploymentID,
+		"failed",
+		"abort",
+	)
+	if err != nil {
+		log.Printf("⚠️  Warning: failed to finalize canary metrics: %v", err)
+	} else {
+		log.Println("✅ Canary metrics finalized as 'failed/aborted'")
+	}
 
 	_, _ = db.Exec(context.Background(), `
         UPDATE deployments SET status='canary_aborted', failure_type='soft', updated_at=NOW()
@@ -143,6 +215,7 @@ func abortCanary(db *pgxpool.Pool, config CanaryPipelineConfig) {
 
 	log.Println("🗑️ Canary ABORTED and cleaned up ✅")
 }
+
 func PromoteStableByUpdatingExisting(kubeconfigPath, contextName, namespace, stableName, newImage string, replicas int) error {
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
@@ -182,6 +255,23 @@ func promoteCanaryToStable(db *pgxpool.Pool, config CanaryPipelineConfig) {
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	log.Println("🚀 PROMOTING CANARY TO PRODUCTION")
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	//FINALIZE CANARY METRICS BEFORE PROMOTION
+	log.Println("📸 Finalizing canary metrics...")
+	kubeService := NewKubeMetricsService()
+	canaryService := NewCanaryMetricsService(db, kubeService)
+	
+	err := canaryService.FinalizeCanaryResult(
+		context.Background(),
+		config.CanaryDeploymentID,
+		"passed",
+		"promote",
+	)
+	if err != nil {
+		log.Printf("⚠️  Warning: failed to finalize canary metrics: %v", err)
+	} else {
+		log.Println("✅ Canary metrics finalized as 'passed'")
+	}
 
 	// STEP 1: Update stable deployment with new image
 	log.Printf("📝 Updating stable deployment '%s' to image: %s", config.DeploymentName, config.ImageTag)  

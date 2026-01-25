@@ -15,10 +15,15 @@ import (
 
 type DeploymentController struct {
 	DB *pgxpool.Pool
+	CanaryMetricsService *services.CanaryMetricsService
 }
 
-func NewDeploymentController(db *pgxpool.Pool) *DeploymentController {
-	return &DeploymentController{DB: db}
+func NewDeploymentController(db *pgxpool.Pool, canaryMetricsService *services.CanaryMetricsService) *DeploymentController {
+	return &DeploymentController{
+		DB: 				  db,
+		CanaryMetricsService: canaryMetricsService,
+	}
+	
 }
 
 // DeploymentStrategy defines how deployments should be executed

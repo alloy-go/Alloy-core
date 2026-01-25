@@ -115,14 +115,15 @@ func (dc *DeploymentController) GetProjectDeployments(c *gin.Context) {
 	})
 }
 
-// Manually promote canary to stable
+// Manually promote canary to stable and helps to calculate canary metrics
 func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 	deploymentID := c.Param("deployment_id")
 
 	var status string
+	var projectID string
 	err := dc.DB.QueryRow(context.Background(), `
-		SELECT status FROM deployments WHERE deployment_id = $1
-	`, deploymentID).Scan(&status)
+		SELECT status, project_id FROM deployments WHERE deployment_id = $1
+	`, deploymentID).Scan(&status, &projectID)
 
 	if err != nil {
 		c.JSON(404, gin.H{"error": "Deployment not found"})
@@ -132,6 +133,21 @@ func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 	if status != "stage_passed" && status != "analyzing" {
 		c.JSON(400, gin.H{"error": "Canary not ready for promotion"})
 		return
+	}
+
+	// Finalize canary metrics BEFORE promotion
+	if dc.CanaryMetricsService != nil {
+		err = dc.CanaryMetricsService.FinalizeCanaryResult(
+			context.Background(),
+			deploymentID,
+			"passed",
+			"promote",
+		)
+		if err != nil {
+			log.Printf("⚠️  Warning: failed to finalize canary metrics: %v", err)
+		} else {
+			log.Printf("✅ Canary metrics finalized as 'passed'")
+		}
 	}
 
 	// Trigger immediate promotion
@@ -153,9 +169,24 @@ func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 	})
 }
 
-// Abort canary deployment
+// Update AbortCanary method
 func (dc *DeploymentController) AbortCanary(c *gin.Context) {
 	deploymentID := c.Param("deployment_id")
+
+	// Finalize canary metrics BEFORE aborting
+	if dc.CanaryMetricsService != nil {
+		err := dc.CanaryMetricsService.FinalizeCanaryResult(
+			context.Background(),
+			deploymentID,
+			"failed",
+			"abort",
+		)
+		if err != nil {
+			log.Printf("⚠️  Warning: failed to finalize canary metrics: %v", err)
+		} else {
+			log.Printf("✅ Canary metrics finalized as 'failed/aborted'")
+		}
+	}
 
 	_, err := dc.DB.Exec(context.Background(), `
 		UPDATE deployments 

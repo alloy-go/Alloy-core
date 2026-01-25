@@ -23,11 +23,17 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	// Service metrics
 	// --------------------
 
+	kubeMetricsService := services.NewKubeMetricsService()
+	doraService := services.NewDORAMetricsService(db)
+	canaryMetricsService := services.NewCanaryMetricsService(db, kubeMetricsService) // for calculating canary metrics
+
+
 	metricsService := services.NewMetricsService(
-	db,
-	services.NewKubeMetricsService(),
-	services.NewDORAMetricsService(db),
-)
+		db,
+		kubeMetricsService,
+		doraService,
+		canaryMetricsService,
+	)
 
 	metricsController := controllers.NewMetricsController(metricsService)
 
@@ -42,7 +48,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	userController := controllers.NewUserController(userService)
 
 	// NEW: Unified deployment controller
-	deployController := controllers.NewDeploymentController(db)
+	deployController := controllers.NewDeploymentController(db,canaryMetricsService)
 
 
 	// --------------------
@@ -73,6 +79,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 	metrics := api.Group("/metrics/projects/:project_id")
 	{
 		metrics.GET("", metricsController.GetProjectMetrics)           // live
+		metrics.GET("/v2", metricsController.GetProjectMetricsForCanary)  //canary metrics
 		metrics.GET("/summary", metricsController.GetProjectMetricsSummary) // cached
 		metrics.POST("refresh",metricsController.RefreshProjectMetrics) //Reload
 	}

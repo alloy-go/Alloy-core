@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"time"
-
+	"log"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minimon-cd/Alloy-core/models"
@@ -14,6 +14,7 @@ type MetricsService struct {
 	db          *pgxpool.Pool
 	kubeService *KubeMetricsService
 	doraService *DORAMetricsService
+	canaryService *CanaryMetricsService
 }
 
 // NewMetricsService creates a new metrics aggregation service
@@ -21,11 +22,13 @@ func NewMetricsService(
 	db *pgxpool.Pool,
 	kubeService *KubeMetricsService,
 	doraService *DORAMetricsService,
+	canaryService *CanaryMetricsService,
 ) *MetricsService {
 	return &MetricsService{
 		db:          db,
 		kubeService: kubeService,
 		doraService: doraService,
+		canaryService: canaryService,
 	}
 }
 
@@ -98,6 +101,90 @@ type projectInfoResult struct {
 	KubeConfig         models.KubeConfig
 }
 
+// GetProjectMetricsV2 - New version that separates production and canary
+func (s *MetricsService) GetProjectMetricsV2(
+	ctx context.Context,
+	projectID string,
+) (*models.MetricsResponseV2, error) {
+
+	projectInfo, err := s.getProjectInfo(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine the stable deployment name (without -canary suffix)
+	stableDeploymentName := projectInfo.DeploymentName
+	
+	// If the latest deployment is a canary, we need to get the stable deployment name
+	// by removing the -canary suffix
+	if len(stableDeploymentName) > 7 && stableDeploymentName[len(stableDeploymentName)-7:] == "-canary" {
+		stableDeploymentName = stableDeploymentName[:len(stableDeploymentName)-7]
+	}
+
+	log.Printf("📊 Fetching production metrics for stable deployment: %s", stableDeploymentName)
+
+	// PRODUCTION METRICS - Always fetch live from stable deployment
+	prodReq := models.MetricsRequest{
+		ProjectID:      projectID,
+		ProjectName:    projectInfo.ProjectName,
+		DeploymentName: stableDeploymentName, // Use stable deployment name
+		Namespace:      projectInfo.Namespace,
+		KubeConfig:     projectInfo.KubeConfig,
+	}
+
+	prodK8sMetrics, err := s.kubeService.GetKubernetesMetrics(ctx, prodReq)
+	if err != nil {
+		log.Printf("⚠️  Warning: failed to fetch production metrics: %v", err)
+		// Return empty metrics rather than failing
+		prodK8sMetrics = &models.KubernetesMetrics{
+			Pods: models.PodMetrics{},
+			Deployment: models.DeploymentStatus{
+				Status: "unknown",
+			},
+		}
+	}
+
+	prodHealth := s.calculateHealth(prodK8sMetrics)
+
+	// DORA METRICS
+	doraMetrics, err := s.doraService.GetDORAMetrics(ctx, projectID)
+	if err != nil {
+		log.Printf("⚠️  Warning: failed to fetch DORA metrics: %v", err)
+		// Return empty DORA metrics
+		doraMetrics = &models.DORAMetrics{}
+	}
+
+	// CANARY METRICS - Fetch latest snapshot (historical, frozen)
+	canarySnapshot, err := s.canaryService.GetLatestCanaryMetrics(ctx, projectID)
+	if err != nil {
+		log.Printf("⚠️  Warning: failed to fetch canary metrics: %v", err)
+	}
+	// canarySnapshot will be nil if no canary exists
+
+	log.Printf("✅ Metrics fetched - Production: %d pods, Canary: %v", 
+		prodK8sMetrics.Pods.Total, canarySnapshot != nil)
+
+	return &models.MetricsResponseV2{
+		ProjectID:   projectID,
+		ProjectName: projectInfo.ProjectName,
+		Timestamp:   time.Now(),
+		Production: models.ProductionMetrics{
+			Deployment: models.DeploymentMetrics{
+				LatestID:   projectInfo.LatestDeploymentID,
+				Status:     projectInfo.LatestStatus,
+				ImageTag:   projectInfo.LatestImageTag,
+				CommitSHA:  projectInfo.LatestCommitSHA,
+				DeployedAt: projectInfo.DeployedAt,
+			},
+			Kubernetes: *prodK8sMetrics,
+			Health:     prodHealth,
+		},
+		Canary: canarySnapshot, // nil if no canary exists
+		DORA:   *doraMetrics,
+	}, nil
+}
+
+
 // getProjectInfo retrieves project details and latest deployment from DB
 func (s *MetricsService) getProjectInfo(ctx context.Context, projectID string) (*projectInfoResult, error) {
 	var result projectInfoResult
@@ -118,7 +205,7 @@ func (s *MetricsService) getProjectInfo(ctx context.Context, projectID string) (
 		JOIN users u ON p.user_id = u.user_id
 		LEFT JOIN LATERAL (
 			SELECT * FROM deployments
-			WHERE project_id = p.project_id
+			WHERE project_id = p.project_id AND deployment_type = 'rollout' AND status = 'ready'
 			ORDER BY created_at DESC
 			LIMIT 1
 		) d ON true
