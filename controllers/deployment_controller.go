@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	services "github.com/minimon-cd/Alloy-core/client-go"
+	services "github.com/alloy-go/Alloy-core/client-go"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -274,19 +274,6 @@ func (dc *DeploymentController) executeRolloutDeployment(
 		return
 	}
 
-	_, err = dc.DB.Exec(context.Background(), `
-    UPDATE deployments
-    SET
-        status = 'ready',
-        deployed_at = NOW(),
-        updated_at = NOW()
-    WHERE deployment_id = $1
-	`, deploymentID)
-
-	if err != nil {
-		log.Printf("⚠️ Failed to update rollout deployment: %v", err)
-	}
-	
 	c.JSON(200, gin.H{
 		"status":        "deploying",
 		"deployment_id": deploymentID,

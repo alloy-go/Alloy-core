@@ -4,9 +4,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	services "github.com/minimon-cd/Alloy-core/client-go"
-	"github.com/minimon-cd/Alloy-core/controllers"
-	"github.com/minimon-cd/Alloy-core/utils"
+	services "github.com/alloy-go/Alloy-core/client-go"
+	"github.com/alloy-go/Alloy-core/controllers"
+	"github.com/alloy-go/Alloy-core/utils"
 )
 
 func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
@@ -84,7 +84,7 @@ func RegisterRoutes(r *gin.Engine, db *pgxpool.Pool) {
 		metrics.POST("refresh",metricsController.RefreshProjectMetrics) //Reload
 	}
 
-	// CLI route (minimon init)
+	// CLI route (Alloy init)
 	api.POST("/init", initController.Init)
 
 	// --------------------

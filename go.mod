@@ -1,4 +1,4 @@
-module github.com/minimon-cd/Alloy-core
+module github.com/alloy-go/Alloy-core
 
 go 1.25.0
 

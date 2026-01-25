@@ -10,7 +10,7 @@ import (
 	"context"
 	"log"
 
-	"github.com/minimon-cd/Alloy-core/utils"
+	"github.com/alloy-go/Alloy-core/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -274,7 +274,7 @@ func (ic *InitController) Init(c *gin.Context) {
 	}
 
 	c.JSON(201, gin.H{
-		"message": "minimon initialized successfully",
+		"message": "Alloy initialized successfully",
 		"user_id": userID,
 	})
 }

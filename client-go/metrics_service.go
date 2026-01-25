@@ -6,7 +6,7 @@ import (
 	"log"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/minimon-cd/Alloy-core/models"
+	"github.com/alloy-go/Alloy-core/models"
 )
 
 // MetricsService aggregates metrics from all sources
@@ -200,7 +200,7 @@ func (s *MetricsService) getProjectInfo(ctx context.Context, projectID string) (
 			COALESCE(d.status, ''),
 			COALESCE(d.image_tag, ''),
 			COALESCE(d.commit_sha, ''),
-			COALESCE(d.updated_at,d.created_at, NOW())
+			COALESCE(d.created_at, NOW())
 		FROM projects p
 		JOIN users u ON p.user_id = u.user_id
 		LEFT JOIN LATERAL (

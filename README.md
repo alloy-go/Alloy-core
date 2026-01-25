@@ -11,7 +11,7 @@
   </p>
 
   <p align="center">
-    <a href="https://github.com/minimon-cd/Alloy-core">
+    <a href="https://github.com/alloy-go/Alloy-core">
       <img src="https://img.shields.io/badge/status-active-success" />
     </a>
     <a href="https://go.dev">
@@ -310,7 +310,7 @@ The `auto` strategy provides the best balance:
 **1. Clone the repository**
 
 ```bash
-git clone https://github.com/minimon-cd/Alloy-core.git
+git clone https://github.com/alloy-go/Alloy-core.git
 cd Alloy-core
 ```
 

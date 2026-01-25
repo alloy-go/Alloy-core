@@ -121,16 +121,12 @@ func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 
 	var status string
 	var projectID string
-
 	err := dc.DB.QueryRow(context.Background(), `
-		SELECT status, project_id
-		FROM deployments
-		WHERE deployment_id = $1
-		  AND deployment_type = 'canary'
+		SELECT status, project_id FROM deployments WHERE deployment_id = $1
 	`, deploymentID).Scan(&status, &projectID)
 
 	if err != nil {
-		c.JSON(404, gin.H{"error": "Canary deployment not found"})
+		c.JSON(404, gin.H{"error": "Deployment not found"})
 		return
 	}
 
@@ -139,7 +135,7 @@ func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 		return
 	}
 
-	// ✅ 1. Finalize canary metrics FIRST (historical snapshot)
+	// Finalize canary metrics BEFORE promotion
 	if dc.CanaryMetricsService != nil {
 		err = dc.CanaryMetricsService.FinalizeCanaryResult(
 			context.Background(),
@@ -148,27 +144,17 @@ func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 			"promote",
 		)
 		if err != nil {
-			log.Printf("⚠️ Failed to finalize canary metrics: %v", err)
+			log.Printf("⚠️  Warning: failed to finalize canary metrics: %v", err)
 		} else {
-			log.Printf("✅ Canary metrics finalized")
+			log.Printf("✅ Canary metrics finalized as 'passed'")
 		}
 	}
 
-	// ✅ 2. Promote canary → stable rollout
+	// Trigger immediate promotion
 	_, err = dc.DB.Exec(context.Background(), `
-		UPDATE deployments stable
-		SET
-			image_tag   = canary.image_tag,
-			commit_sha  = canary.commit_sha,
-			deployed_at = NOW(),
-			updated_at  = NOW(),
-			status      = 'ready'
-		FROM deployments canary
-		WHERE
-			stable.project_id = canary.project_id
-			AND stable.deployment_type = 'rollout'
-			AND stable.canary_track = 'stable'
-			AND canary.deployment_id = $1
+		UPDATE deployments 
+		SET canary_stage = 999, status = 'promoting' 
+		WHERE deployment_id = $1
 	`, deploymentID)
 
 	if err != nil {
@@ -176,21 +162,12 @@ func (dc *DeploymentController) PromoteCanary(c *gin.Context) {
 		return
 	}
 
-	// ✅ 3. Mark canary as completed
-	_, _ = dc.DB.Exec(context.Background(), `
-		UPDATE deployments
-		SET status = 'promoted', updated_at = NOW()
-		WHERE deployment_id = $1
-	`, deploymentID)
-
-	log.Printf("🚀 Canary %s successfully promoted to production", deploymentID)
-
+	log.Printf("🚀 Manual promotion triggered for deployment %s", deploymentID)
 	c.JSON(200, gin.H{
-		"status":  "promoted",
-		"message": "Canary successfully promoted to production",
+		"status":  "promoting",
+		"message": "Canary promotion initiated",
 	})
 }
-
 
 // Update AbortCanary method
 func (dc *DeploymentController) AbortCanary(c *gin.Context) {

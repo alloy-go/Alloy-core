@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	services "github.com/minimon-cd/Alloy-core/client-go"
-	"github.com/minimon-cd/Alloy-core/config"
-	"github.com/minimon-cd/Alloy-core/routes"
+	services "github.com/alloy-go/Alloy-core/client-go"
+	"github.com/alloy-go/Alloy-core/config"
+	"github.com/alloy-go/Alloy-core/routes"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"

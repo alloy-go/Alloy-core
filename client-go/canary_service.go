@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"time"
-	 "github.com/minimon-cd/Alloy-core/models"
+	 "github.com/alloy-go/Alloy-core/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"

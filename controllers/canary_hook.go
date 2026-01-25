@@ -11,7 +11,7 @@ import (
     "github.com/google/uuid"
     "gopkg.in/yaml.v3"
     "github.com/jackc/pgx/v5/pgxpool"
-    services "github.com/minimon-cd/Alloy-core/client-go"
+    services "github.com/alloy-go/Alloy-core/client-go"
 )
 
 type CanaryController struct {

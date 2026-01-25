@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/minimon-cd/Alloy-core/models"
+	"github.com/alloy-go/Alloy-core/models"
 )
 
 type ProjectService struct {
