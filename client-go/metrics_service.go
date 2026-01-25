@@ -43,7 +43,7 @@ func (s *MetricsService) GetProjectMetrics(
 	req := models.MetricsRequest{
 		ProjectID:      projectID,
 		ProjectName:    projectInfo.ProjectName,
-		DeploymentName: projectInfo.ProjectName,
+		DeploymentName: projectInfo.DeploymentName,
 		Namespace:      projectInfo.Namespace,
 		KubeConfig:     projectInfo.KubeConfig,
 	}
