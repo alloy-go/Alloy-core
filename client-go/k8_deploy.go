@@ -156,6 +156,8 @@ func monitorDeploymentStatus(config K8sDeployConfig) {
     defer ticker.Stop()
 
     timeout := time.After(5 * time.Minute)
+	failureCheckTicker := time.NewTicker(3 * time.Second)
+	defer failureCheckTicker.Stop()
 
     for {
         select {
@@ -169,6 +171,55 @@ func monitorDeploymentStatus(config K8sDeployConfig) {
                 WHERE deployment_id = $1
             `, config.DeploymentID)
             return
+
+		case <-failureCheckTicker.C:
+			// Check for pod failures (ImagePullBackOff, CrashLoopBackOff, CreateContainerConfigError, etc.)
+			if hasFailedPods, reason := checkForFailedPods(config); hasFailedPods {
+				log.Printf("🚨 Pod failure detected: %s\n", reason)
+				
+				// Update database to mark as failed with rollback flag
+				_, _ = config.DB.Exec(context.Background(), `
+					UPDATE deployments 
+					SET status = 'failed', failure_type = 'hard', 
+						needs_rollback = true, error_message = $1
+					WHERE deployment_id = $2
+				`, reason, config.DeploymentID)
+				
+				// 🔑 IMMEDIATELY trigger rollback (don't wait for watcher)
+				log.Println("🔄 TRIGGERING IMMEDIATE ROLLBACK...")
+				
+				// Get project and user info to trigger rollback
+				var projectID, userID string
+				err := config.DB.QueryRow(context.Background(), `
+					SELECT project_id FROM deployments WHERE deployment_id = $1
+				`, config.DeploymentID).Scan(&projectID)
+				
+				if err == nil {
+					// Get user ID from project
+					err = config.DB.QueryRow(context.Background(), `
+						SELECT user_id FROM projects WHERE project_id = $1
+					`, projectID).Scan(&userID)
+					
+					if err == nil {
+						// Execute rollback immediately
+						rollbackReq := RollbackRequest{
+							ProjectID:          projectID,
+							UserID:             userID,
+							FailedDeploymentID: config.DeploymentID,
+						}
+						
+						go func() {
+							result, err := ExecuteRollback(config.DB, rollbackReq)
+							if err != nil {
+								log.Printf("❌ Rollback failed: %v\n", err)
+							} else {
+								log.Printf("✅ Rollback completed: %s\n", result.RollbackDeploymentID)
+							}
+						}()
+					}
+				}
+				return
+			}
 
         case <-ticker.C:
             status, err := GetDeploymentStatus(
@@ -254,6 +305,77 @@ func monitorDeploymentStatus(config K8sDeployConfig) {
 
         }
     }
+}
+
+// checkForFailedPods checks if any pods are in a failed state and returns the reason
+func checkForFailedPods(config K8sDeployConfig) (bool, string) {
+	kubeconfigPath := config.KubeconfigPath
+	contextName := config.ContextName
+	namespace := config.Namespace
+	labelSelector := config.AppLabel
+
+	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
+		&clientcmd.ConfigOverrides{CurrentContext: contextName},
+	).ClientConfig()
+	if err != nil {
+		log.Printf("⚠️  Failed to load kubeconfig: %v\n", err)
+		return false, ""
+	}
+
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		log.Printf("⚠️  Failed to create clientset: %v\n", err)
+		return false, ""
+	}
+
+	pods, err := clientset.CoreV1().Pods(namespace).List(
+		context.Background(),
+		metav1.ListOptions{
+			LabelSelector: labelSelector,
+		},
+	)
+	if err != nil {
+		log.Printf("⚠️  Failed to list pods: %v\n", err)
+		return false, ""
+	}
+
+	for _, pod := range pods.Items {
+		// Check container statuses for errors
+		for _, containerStatus := range pod.Status.ContainerStatuses {
+			if containerStatus.State.Waiting != nil {
+				reason := containerStatus.State.Waiting.Reason
+				// These are critical failures that need rollback
+				if reason == "ImagePullBackOff" || 
+				   reason == "ErrImagePull" || 
+				   reason == "CreateContainerConfigError" || 
+				   reason == "InvalidImageName" {
+					return true, fmt.Sprintf("pod-%s-image-error: %s", pod.Name, reason)
+				}
+				// Secret/ConfigMap not found
+				if strings.Contains(reason, "CreateContainerConfigError") {
+					return true, fmt.Sprintf("pod-%s-config-error: %s (%s)", pod.Name, reason, containerStatus.State.Waiting.Message)
+				}
+			}
+			if containerStatus.State.Terminated != nil {
+				if containerStatus.State.Terminated.ExitCode != 0 {
+					reason := containerStatus.State.Terminated.Reason
+					if reason == "Error" || reason == "OOMKilled" {
+						return true, fmt.Sprintf("pod-%s-crashed: %s (exit: %d)", pod.Name, reason, containerStatus.State.Terminated.ExitCode)
+					}
+				}
+			}
+		}
+
+		// Check pod conditions
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == "Ready" && condition.Status == "False" {
+				return true, fmt.Sprintf("pod-%s-not-ready: %s (%s)", pod.Name, condition.Reason, condition.Message)
+			}
+		}
+	}
+
+	return false, ""
 }
 
 // Update deployment status in database

@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS deployments (
     commit_sha TEXT NOT NULL,
     image_tag TEXT NOT NULL,
     status TEXT NOT NULL,
-    secret_yaml TEXT NOT NULL,
-    service_yaml TEXT NOT NULL,
+    secret_yaml TEXT,
+    service_yaml TEXT,
 
     secret_status TEXT,
     service_status TEXT,
