@@ -231,10 +231,11 @@ func (dc *DeploymentController) executeRolloutDeployment(
 	_, err := dc.DB.Exec(context.Background(), `
 		INSERT INTO deployments (
 			deployment_id, project_id, commit_sha, image_tag, status, 
-			namespace, deployment_name, deployment_type, canary_track
-		) VALUES ($1, $2, $3, $4, 'pending', $5, $6, 'rollout', 'stable')
+			namespace, deployment_name, deployment_type, canary_track,
+			secret_yaml, service_yaml
+		) VALUES ($1, $2, $3, $4, 'pending', $5, $6, 'rollout', 'stable', $7, $8)
 	`, deploymentID, payload.ProjectID, payload.CommitSHA, payload.ImageTag,
-		deploymentMeta.Namespace, deploymentMeta.Name)
+		deploymentMeta.Namespace, deploymentMeta.Name, payload.Files.Secret, payload.Files.Service)
 
 	if err != nil {
 		log.Printf("❌ Failed to create deployment record: %v\n", err)
@@ -299,10 +300,10 @@ func (dc *DeploymentController) executeCanaryDeployment(
 		INSERT INTO deployments (
 			deployment_id, project_id, commit_sha, image_tag, status, 
 			namespace, deployment_name, deployment_type, canary_track,
-			canary_target_replicas, canary_stage
-		) VALUES ($1, $2, $3, $4, 'pending', $5, $6, 'canary', 'canary', $7, 0)
+			canary_target_replicas, canary_stage, secret_yaml, service_yaml
+		) VALUES ($1, $2, $3, $4, 'pending', $5, $6, 'canary', 'canary', $7, 0, $8, $9)
 	`, canaryID, payload.ProjectID, payload.CommitSHA, payload.ImageTag,
-		deploymentMeta.Namespace, canaryDeploymentName, deploymentMeta.Replicas)
+		deploymentMeta.Namespace, canaryDeploymentName, deploymentMeta.Replicas, payload.Files.Secret, payload.Files.Service)
 
 	if err != nil {
 		log.Printf("❌ Failed to create canary record: %v\n", err)

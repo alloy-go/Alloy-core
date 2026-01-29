@@ -20,4 +20,6 @@ type DeploymentRecord struct {
     ErrorMessage     string    `json:"error_message"`
     FailureType      string    `json:"failure_type"`     // 'hard', 'soft', NULL
     NeedsRollback    bool      `json:"needs_rollback"`   // true/false
+	SecretYaml       string    `json:"secret_yaml"`
+	ServiceYaml      string    `json:"service_yaml"`
 }
