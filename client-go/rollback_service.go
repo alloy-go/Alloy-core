@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -228,7 +230,7 @@ func getServiceInfo(kubeconfigPath, contextName, namespace, deploymentName strin
 func GetLastSuccessfulDeployment(db *pgxpool.Pool, projectID string, beforeTime time.Time) (*DeploymentRecord, error) {
 	query := `
         SELECT deployment_id, project_id, commit_sha, image_tag, 
-               namespace, deployment_name, created_at
+               namespace, deployment_name, created_at, secret_yaml, service_yaml
         FROM deployments
         WHERE project_id = $1 
           AND status = 'ready'
@@ -246,6 +248,8 @@ func GetLastSuccessfulDeployment(db *pgxpool.Pool, projectID string, beforeTime 
 		&record.Namespace,
 		&record.DeploymentName,
 		&record.CreatedAt,
+		&record.SecretYaml,
+		&record.ServiceYaml,
 	)
 
 	if err != nil {
@@ -329,6 +333,64 @@ func ReplaceImageInDeployment(deploymentMap map[string]interface{}, newImageTag 
 	log.Printf("🔄 Image updated:")
 	log.Printf("   From: %v", oldImage)
 	log.Printf("   To:   %s", newImageTag)
+
+	return nil
+}
+
+// cleanupStaleSecrets deletes any secrets that don't match the expected name
+func cleanupStaleSecrets(kubeconfigPath, contextName, namespace, secretNameToKeep string) error {
+	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
+		&clientcmd.ConfigOverrides{CurrentContext: contextName},
+	).ClientConfig()
+	if err != nil {
+		return err
+	}
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+
+	// List all secrets
+	secrets, err := clientset.CoreV1().Secrets(namespace).List(
+		context.Background(),
+		metav1.ListOptions{},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Delete secrets that look like app secrets but don't match the expected name
+	for _, secret := range secrets.Items {
+		secretName := secret.Name
+		
+		// Always delete if it's a different app secret (even if name contains our prefix)
+		// This ensures we replace broken secrets with the correct version
+		if strings.Contains(secretName, "student-env") || 
+		   strings.Contains(secretName, "app-secret") ||
+		   strings.Contains(secretName, "broken") {
+			
+			// If it's NOT the one we want to keep, delete it
+			if secretName != secretNameToKeep {
+				log.Printf("   🗑️  Deleting stale secret: %s\n", secretName)
+				err := clientset.CoreV1().Secrets(namespace).Delete(
+					context.Background(),
+					secretName,
+					metav1.DeleteOptions{},
+				)
+				if err != nil {
+					log.Printf("   ⚠️  Failed to delete secret %s: %v\n", secretName, err)
+				}
+			}
+		}
+
+		// Skip system secrets
+		if strings.HasPrefix(secretName, "default-token") || 
+		   strings.HasPrefix(secretName, "kube-") {
+			continue
+		}
+	}
 
 	return nil
 }
@@ -419,11 +481,13 @@ func ExecuteRollback(db *pgxpool.Pool, request RollbackRequest) (*RollbackResult
 	_, err = db.Exec(context.Background(), `
         INSERT INTO deployments 
         (deployment_id, project_id, commit_sha, image_tag, status, 
-         namespace, deployment_name, deployment_type, rollback_from)
-        VALUES ($1, $2, $3, $4, 'pending', $5, $6, 'rollback', $7)
+         namespace, deployment_name, deployment_type, rollback_from,
+         secret_yaml, service_yaml)
+        VALUES ($1, $2, $3, $4, 'pending', $5, $6, 'rollback', $7, $8, $9)
     `, rollbackDeploymentID, request.ProjectID, rollbackTarget.CommitSHA,
 		rollbackTarget.ImageTag, currentDeployment.Namespace,
-		currentDeployment.DeploymentName, currentDeployment.DeploymentID)
+		currentDeployment.DeploymentName, currentDeployment.DeploymentID,
+		rollbackTarget.SecretYaml, rollbackTarget.ServiceYaml)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rollback record: %w", err)
@@ -433,7 +497,77 @@ func ExecuteRollback(db *pgxpool.Pool, request RollbackRequest) (*RollbackResult
 	log.Println("🔄 APPLYING ROLLBACK TO CLUSTER")
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// 9. 🔑 THIS IS WHERE kubectl apply HAPPENS!
+	// 9. Extract secret name from rollback target YAML
+	var secretNameToKeep string
+	if rollbackTarget.SecretYaml != "" {
+		secretYAMLDecoded, err := base64.StdEncoding.DecodeString(rollbackTarget.SecretYaml)
+		if err == nil {
+			var secretObj struct {
+				Metadata struct {
+					Name string `yaml:"name"`
+				} `yaml:"metadata"`
+			}
+			if err := yaml.Unmarshal(secretYAMLDecoded, &secretObj); err == nil {
+				secretNameToKeep = secretObj.Metadata.Name
+				log.Printf("🔍 Expected secret name: %s\n", secretNameToKeep)
+			}
+		}
+	}
+
+	// Clean up stale secrets (delete any OTHER secrets that don't match the expected name)
+	if secretNameToKeep != "" {
+		if err := cleanupStaleSecrets(configPath, contextName, currentDeployment.Namespace, secretNameToKeep); err != nil {
+			log.Printf("⚠️  Failed to cleanup stale secrets: %v\n", err)
+		}
+	}
+
+	// 10. Decode base64 secret and service YAML from database
+	var secretYAML, serviceYAML []byte
+	if rollbackTarget.SecretYaml != "" {
+		secretYAML, err = base64.StdEncoding.DecodeString(rollbackTarget.SecretYaml)
+		if err != nil {
+			log.Printf("⚠️  Failed to decode secret YAML: %v\n", err)
+		} else {
+			log.Println("✅ Secret YAML decoded from database")
+		}
+	} else {
+		log.Println("ℹ️  No secret YAML stored in database (old deployment)")
+	}
+
+	if rollbackTarget.ServiceYaml != "" {
+		serviceYAML, err = base64.StdEncoding.DecodeString(rollbackTarget.ServiceYaml)
+		if err != nil {
+			log.Printf("⚠️  Failed to decode service YAML: %v\n", err)
+		} else {
+			log.Println("✅ Service YAML decoded from database")
+		}
+	} else {
+		log.Println("ℹ️  No service YAML stored in database (old deployment)")
+	}
+
+	// 11. Apply secret YAML to cluster (if available)
+	if len(secretYAML) > 0 {
+		if err := ApplyYAML(configPath, contextName, secretYAML); err != nil {
+			log.Printf("⚠️  Failed to apply secret YAML: %v\n", err)
+		} else {
+			log.Println("✅ Secret YAML applied to cluster")
+		}
+	} else {
+		log.Println("⏭️  Skipping secret YAML (not available)")
+	}
+
+	// 12. Apply service YAML to cluster (if available)
+	if len(serviceYAML) > 0 {
+		if err := ApplyYAML(configPath, contextName, serviceYAML); err != nil {
+			log.Printf("⚠️  Failed to apply service YAML: %v\n", err)
+		} else {
+			log.Println("✅ Service YAML applied to cluster")
+		}
+	} else {
+		log.Println("⏭️  Skipping service YAML (not available)")
+	}
+
+	// 12. 🔑 THIS IS WHERE kubectl apply HAPPENS!
 	// Apply the modified deployment YAML to cluster
 	if err := ApplyYAML(configPath, contextName, deploymentYAML); err != nil {
 		log.Printf("❌ Rollback deployment failed: %v\n", err)
@@ -462,7 +596,7 @@ func ExecuteRollback(db *pgxpool.Pool, request RollbackRequest) (*RollbackResult
 		log.Printf("⚠️ Failed to mark original deployment as rolled_back: %v", err)
 	}
 
-	// 10. Build config for monitoring
+	// 13. Build config for monitoring
 	rollbackConfig := K8sDeployConfig{
 		KubeconfigPath: configPath,
 		ContextName:    contextName,
@@ -476,7 +610,7 @@ func ExecuteRollback(db *pgxpool.Pool, request RollbackRequest) (*RollbackResult
 		DB:             db,
 	}
 
-	// 11. Start monitoring in background (just watches, doesn't deploy)
+	// 14. Start monitoring in background (just watches, doesn't deploy)
 	go monitorDeploymentStatus(rollbackConfig)
 
 	return &RollbackResult{
@@ -496,4 +630,6 @@ type DeploymentRecord struct {
 	Namespace      string
 	DeploymentName string
 	CreatedAt      time.Time
+	SecretYaml     string
+	ServiceYaml    string
 }
