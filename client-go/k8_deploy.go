@@ -151,7 +151,6 @@ func waitForSinglePod(kubeconfigPath, contextName, namespace, labelSelector stri
 }
 
 // Monitor deployment status until pods are ready
-// Monitor deployment status until pods are ready
 func monitorDeploymentStatus(config K8sDeployConfig) {
     ticker := time.NewTicker(5 * time.Second)
     defer ticker.Stop()
@@ -163,7 +162,7 @@ func monitorDeploymentStatus(config K8sDeployConfig) {
     gracePeriod := time.After(45 * time.Second)
     graceExpired := false
     
-    failureCheckTicker := time.NewTicker(5 * time.Second) // Changed from 3s to 5s
+    failureCheckTicker := time.NewTicker(5 * time.Second) 
     defer failureCheckTicker.Stop()
 
     for {
