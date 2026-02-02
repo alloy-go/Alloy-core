@@ -150,107 +150,143 @@ func waitForSinglePod(kubeconfigPath, contextName, namespace, labelSelector stri
 	return fmt.Errorf("timeout waiting for old pods to terminate")
 }
 
+// For better Error handling
+func execOrFail(ctx context.Context, db *pgxpool.Pool, msg string, query string, args ...any) {
+	if _, err := db.Exec(ctx, query, args...); err != nil {
+		log.Printf("❌ CRITICAL: %s: %v", msg, err)
+		panic(msg) // or log.Fatal(msg)
+	}
+}
+
 // Monitor deployment status until pods are ready
 func monitorDeploymentStatus(config K8sDeployConfig) {
-    ticker := time.NewTicker(5 * time.Second)
-    defer ticker.Stop()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	ctx := context.Background()
 
-    timeout := time.After(5 * time.Minute)
-    
-    // Grace period: don't check for failures for the first 45 seconds
-    // This allows time for image pulls, especially for larger images
-    gracePeriod := time.After(45 * time.Second)
-    graceExpired := false
-    
-    failureCheckTicker := time.NewTicker(5 * time.Second) 
-    defer failureCheckTicker.Stop()
+	timeout := time.After(5 * time.Minute)
 
-    for {
-        select {
-        case <-gracePeriod:
-            graceExpired = true
-            log.Println("✅ Grace period expired - now checking for failures")
+	// Grace period: don't check for failures for the first 45 seconds
+	// This allows time for image pulls, especially for larger images
+	gracePeriod := time.After(45 * time.Second)
+	graceExpired := false
 
-        case <-timeout:
-            log.Printf("⏱️  Deployment monitoring timeout for %s\n", config.DeploymentName)
-            
-            // Check if this is a rollback deployment
-            var deploymentType string
-            err := config.DB.QueryRow(context.Background(), `
+	failureCheckTicker := time.NewTicker(5 * time.Second)
+	defer failureCheckTicker.Stop()
+
+	for {
+		select {
+		case <-gracePeriod:
+			graceExpired = true
+			log.Println("✅ Grace period expired - now checking for failures")
+
+		case <-timeout:
+			log.Printf("⏱️  Deployment monitoring timeout for %s\n", config.DeploymentName)
+
+			// Check if this is a rollback deployment
+			var deploymentType string
+			err := config.DB.QueryRow(ctx, `
                 SELECT COALESCE(deployment_type, 'normal') 
                 FROM deployments 
                 WHERE deployment_id = $1
             `, config.DeploymentID).Scan(&deploymentType)
-            
-            if err == nil && deploymentType == "rollback" {
-                // Rollback timed out - this is critical
-                log.Println("🚨 ROLLBACK DEPLOYMENT TIMED OUT - MANUAL INTERVENTION REQUIRED")
-                _, _ = config.DB.Exec(context.Background(), `
-                    UPDATE deployments 
-                    SET status = 'failed', failure_type = 'hard', 
-                        needs_rollback = false, error_message = 'rollback-timeout-5min'
-                    WHERE deployment_id = $1
-                `, config.DeploymentID)
-            } else {
-                // Normal deployment timeout - attempt rollback
-                _, _ = config.DB.Exec(context.Background(), `
-                    UPDATE deployments 
-                    SET status = 'failed', failure_type = 'hard', 
-                        needs_rollback = true, error_message = 'timeout-5min'
-                    WHERE deployment_id = $1
-                `, config.DeploymentID)
-            }
-            return
 
-        case <-failureCheckTicker.C:
-            // Skip failure checks during grace period
-            if !graceExpired {
-                continue
-            }
-            
-            // Check for pod failures (ImagePullBackOff, CrashLoopBackOff, CreateContainerConfigError, etc.)
-            if hasFailedPods, reason := checkForFailedPods(config); hasFailedPods {
-                log.Printf("🚨 Pod failure detected: %s\n", reason)
-                
-                // First, check what type of deployment this is
-                var deploymentType string
-                err := config.DB.QueryRow(context.Background(), `
+			if err == nil && deploymentType == "rollback" {
+				log.Println("🚨 ROLLBACK DEPLOYMENT TIMED OUT - MANUAL INTERVENTION REQUIRED")
+
+				execOrFail(
+					ctx,
+					config.DB,
+					"rollback timeout persistence failed",
+					`
+					UPDATE deployments
+					SET status = 'failed',
+						failure_type = 'hard',
+						needs_rollback = false,
+						error_message = 'rollback-timeout-5min'
+					WHERE deployment_id = $1
+					`,
+					config.DeploymentID,
+				)
+			} else {
+				log.Println("⏱️  DEPLOYMENT TIMED OUT - TRIGGERING ROLLBACK")
+
+				execOrFail(
+					ctx,
+					config.DB,
+					"timeout rollback flag persistence failed",
+					`
+					UPDATE deployments
+					SET status = 'failed',
+						failure_type = 'hard',
+						needs_rollback = true,
+						error_message = 'timeout-5min'
+					WHERE deployment_id = $1
+					`,
+					config.DeploymentID,
+				)
+			}
+			return
+
+		case <-failureCheckTicker.C:
+			// Skip failure checks during grace period
+			if !graceExpired {
+				continue
+			}
+
+			// Check for pod failures (ImagePullBackOff, CrashLoopBackOff, CreateContainerConfigError, etc.)
+			if hasFailedPods, reason := checkForFailedPods(config); hasFailedPods {
+				log.Printf("🚨 Pod failure detected: %s\n", reason)
+
+				// First, check what type of deployment this is
+				var deploymentType string
+				err := config.DB.QueryRow(context.Background(), `
                     SELECT COALESCE(deployment_type, 'normal') 
                     FROM deployments 
                     WHERE deployment_id = $1
                 `, config.DeploymentID).Scan(&deploymentType)
-                
-                if err != nil {
-                    log.Printf("⚠️  Failed to get deployment type: %v\n", err)
-                    deploymentType = "normal"
-                }
-                
-                // If this is already a rollback deployment that failed, don't cascade rollbacks
-                if deploymentType == "rollback" {
-                    log.Println("🚨 ROLLBACK DEPLOYMENT FAILED - STOPPING CASCADE")
-                    _, _ = config.DB.Exec(context.Background(), `
-                        UPDATE deployments 
-                        SET status = 'failed', failure_type = 'hard', 
-                            needs_rollback = false, error_message = $1
-                        WHERE deployment_id = $2
-                    `, "rollback-failed: "+reason, config.DeploymentID)
-                    return
-                }
-                
-                // For normal deployments, check if we have a previous successful deployment to rollback to
-                var projectID string
-                err = config.DB.QueryRow(context.Background(), `
+
+				if err != nil {
+					log.Printf("⚠️  Failed to get deployment type: %v\n", err)
+					deploymentType = "normal"
+				}
+
+				// If this is already a rollback deployment that failed, don't cascade rollbacks
+				if deploymentType == "rollback" {
+					log.Println("🚨 ROLLBACK DEPLOYMENT FAILED - STOPPING CASCADE")
+					execOrFail(
+						ctx,
+						config.DB,
+						"rollback deployment failure persistence failed",
+						`
+						UPDATE deployments
+						SET status = 'failed',
+							failure_type = 'hard',
+							needs_rollback = false,
+							error_message = $1
+						WHERE deployment_id = $2
+						`,
+						"rollback-failed: "+reason,
+						config.DeploymentID,
+					)
+					return
+
+				}
+
+				// For normal deployments, check if we have a previous successful deployment to rollback to
+				var projectID string
+				err = config.DB.QueryRow(context.Background(), `
                     SELECT project_id FROM deployments WHERE deployment_id = $1
                 `, config.DeploymentID).Scan(&projectID)
-                
-                if err != nil {
-                    log.Printf("❌ Failed to get project ID: %v\n", err)
-                    return
-                }
-                
-                // Check if there's any successful deployment to rollback to
-                var successfulDeploymentCount int
-                err = config.DB.QueryRow(context.Background(), `
+
+				if err != nil {
+					log.Printf("❌ Failed to get project ID: %v\n", err)
+					return
+				}
+
+				// Check if there's any successful deployment to rollback to
+				var successfulDeploymentCount int
+				err = config.DB.QueryRow(context.Background(), `
                     SELECT COUNT(*) 
                     FROM deployments 
                     WHERE project_id = $1 
@@ -261,167 +297,191 @@ func monitorDeploymentStatus(config K8sDeployConfig) {
                           WHERE deployment_id = $2
                       )
                 `, projectID, config.DeploymentID).Scan(&successfulDeploymentCount)
-                
-                if err != nil {
-                    log.Printf("❌ Failed to check for previous deployments: %v\n", err)
-                    _, _ = config.DB.Exec(context.Background(), `
+
+				if err != nil {
+					log.Printf("❌ Failed to check for previous deployments: %v\n", err)
+					execOrFail(ctx, config.DB,
+						"First Deployment failure presistent failed",
+						`
                         UPDATE deployments 
                         SET status = 'failed', failure_type = 'hard', 
                             needs_rollback = false, error_message = $1
                         WHERE deployment_id = $2
-                    `, reason, config.DeploymentID)
-                    return
-                }
-                
-                // No previous successful deployments - this is likely the first deployment
-                if successfulDeploymentCount == 0 {
-                    log.Println("⚠️  FIRST DEPLOYMENT FAILED - No previous version to rollback to")
-                    log.Println("   Please fix the issue and try deploying again")
-                    
-                    _, _ = config.DB.Exec(context.Background(), `
+                    `, "First deployment failed "+reason, config.DeploymentID)
+					return
+				}
+
+				// No previous successful deployments - this is likely the first deployment
+				if successfulDeploymentCount == 0 {
+					log.Println("⚠️  FIRST DEPLOYMENT FAILED - No previous version to rollback to")
+					log.Println("   Please fix the issue and try deploying again")
+
+					execOrFail(ctx, config.DB,
+						"First deployment failure",
+						`
                         UPDATE deployments 
                         SET status = 'failed', failure_type = 'hard', 
                             needs_rollback = false, 
                             error_message = $1
                         WHERE deployment_id = $2
                     `, "first-deployment-failed: "+reason, config.DeploymentID)
-                    return
-                }
-                
-                // We have a previous deployment - proceed with rollback
-                log.Printf("✅ Found %d previous successful deployment(s) - proceeding with rollback\n", successfulDeploymentCount)
-                
-                // Update database to mark as failed with rollback flag
-                _, _ = config.DB.Exec(context.Background(), `
-                    UPDATE deployments 
-                    SET status = 'failed', failure_type = 'hard', 
-                        needs_rollback = true, error_message = $1
-                    WHERE deployment_id = $2
-                `, reason, config.DeploymentID)
-                
-                // Get user ID from project
-                var userID string
-                err = config.DB.QueryRow(context.Background(), `
+					return
+				}
+
+				// We have a previous deployment - proceed with rollback
+				log.Printf("✅ Found %d previous successful deployment(s) - proceeding with rollback\n", successfulDeploymentCount)
+
+				// Update database to mark as failed with rollback flag
+				execOrFail(
+					ctx,
+					config.DB,
+					"rollback intent persistence failed",
+					`
+					UPDATE deployments
+					SET status = 'failed',
+						failure_type = 'hard',
+						needs_rollback = true,
+						error_message = $1
+					WHERE deployment_id = $2
+					`,
+					reason,
+					config.DeploymentID,
+				)
+				// Get user ID from project
+				var userID string
+				err = config.DB.QueryRow(context.Background(), `
                     SELECT user_id FROM projects WHERE project_id = $1
                 `, projectID).Scan(&userID)
-                
-                if err != nil {
-                    log.Printf("❌ Failed to get user ID: %v\n", err)
-                    return
-                }
-                
-                // 🔑 IMMEDIATELY trigger rollback (don't wait for watcher)
-                log.Println("🔄 TRIGGERING IMMEDIATE ROLLBACK...")
-                
-                rollbackReq := RollbackRequest{
-                    ProjectID:          projectID,
-                    UserID:             userID,
-                    FailedDeploymentID: config.DeploymentID,
-                }
-                
-                go func() {
-                    result, err := ExecuteRollback(config.DB, rollbackReq)
-                    if err != nil {
-                        log.Printf("❌ Rollback failed: %v\n", err)
-                        
-                        // Mark rollback as failed
-                        _, _ = config.DB.Exec(context.Background(), `
-                            UPDATE deployments 
-                            SET needs_rollback = false, 
-                                error_message = $1
-                            WHERE deployment_id = $2
-                        `, "auto-rollback-failed: "+err.Error(), config.DeploymentID)
-                    } else {
-                        log.Printf("✅ Rollback completed: %s\n", result.RollbackDeploymentID)
-                    }
-                }()
-                
-                return
-            }
 
-        case <-ticker.C:
-            status, err := GetDeploymentStatus(
-                config.KubeconfigPath,
-                config.ContextName,
-                config.Namespace,
-                config.DeploymentName,
-            )
+				if err != nil {
+					log.Printf("❌ Failed to get user ID: %v\n", err)
+					return
+				}
 
-            if err != nil {
-                log.Printf("❌ Failed to get deployment status: %v\n", err)
-                continue
-            }
+				// 🔑 IMMEDIATELY trigger rollback (don't wait for watcher)
+				log.Println("🔄 TRIGGERING IMMEDIATE ROLLBACK...")
 
-            log.Printf("📊 Deployment %s status: %s\n", config.DeploymentName, status)
+				rollbackReq := RollbackRequest{
+					ProjectID:          projectID,
+					UserID:             userID,
+					FailedDeploymentID: config.DeploymentID,
+				}
 
-            if status == "ready" {
-                log.Printf("✅ Deployment %s is ready!\n", config.DeploymentName)
-                updateDeploymentStatus(config.DB, config.DeploymentID, "ready", "", "", "")
+				go func() {
+					result, rollbackErr := ExecuteRollback(config.DB, rollbackReq)
+					if rollbackErr != nil {
+						log.Printf("Rollback failed: %v", rollbackErr)
 
-                // Clear failure flags on success
-                _, _ = config.DB.Exec(context.Background(), `
+						_, dbErr := config.DB.Exec(context.Background(), `
+							UPDATE deployments
+							SET needs_rollback = false,
+								error_message = $1
+							WHERE deployment_id = $2
+						`, "auto-rollback-failed: "+rollbackErr.Error(), config.DeploymentID)
+
+						if dbErr != nil {
+							log.Printf(
+								"Failed to persist auto-rollback failure for deployment %s: %v",
+								config.DeploymentID,
+								dbErr,
+							)
+						}
+
+						return
+					}
+					log.Printf("✅ Rollback completed: %s", result.RollbackDeploymentID)
+				}()
+
+				return
+			}
+
+		case <-ticker.C:
+			status, err := GetDeploymentStatus(
+				config.KubeconfigPath,
+				config.ContextName,
+				config.Namespace,
+				config.DeploymentName,
+			)
+
+			if err != nil {
+				log.Printf("❌ Failed to get deployment status: %v\n", err)
+				continue
+			}
+
+			log.Printf("📊 Deployment %s status: %s\n", config.DeploymentName, status)
+
+			if status == "ready" {
+				log.Printf("✅ Deployment %s is ready!\n", config.DeploymentName)
+				updateDeploymentStatus(config.DB, config.DeploymentID, "ready", "", "", "")
+
+				// Clear failure flags on success
+				_, dbErr := config.DB.Exec(ctx, `
                     UPDATE deployments SET failure_type = NULL, needs_rollback = false 
                     WHERE deployment_id = $1
                 `, config.DeploymentID)
 
-                log.Println("⏳ Waiting for old pods to be cleaned up...")
-                if err := waitForSinglePod(
-                    config.KubeconfigPath,
-                    config.ContextName,
-                    config.Namespace,
-                    config.AppLabel,
-                    30*time.Second,
-                ); err != nil {
-                    log.Printf("⚠️  Warning: %v\n", err)
-                }
+				if dbErr != nil {
+					log.Printf("Failed to clear failure flags: %v", err)
+				}
 
-                log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                log.Println("🔌 STARTING PORT-FORWARD")
-                log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				log.Println("⏳ Waiting for old pods to be cleaned up...")
+				if err := waitForSinglePod(
+					config.KubeconfigPath,
+					config.ContextName,
+					config.Namespace,
+					config.AppLabel,
+					30*time.Second,
+				); err != nil {
+					log.Printf("⚠️  Warning: %v\n", err)
+				}
 
-                err := StartPortForward(
-                    config.KubeconfigPath,
-                    config.ContextName,
-                    config.Namespace,
-                    config.ServiceName,
-                    config.ServicePort,
-                    config.ServicePort,
-                )
+				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				log.Println("🔌 STARTING PORT-FORWARD")
+				log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-                if err != nil {
-                    log.Printf("❌ Port-forward failed: %v\n", err)
-                } else {
-                    log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    log.Printf("🎉 DEPLOYMENT COMPLETE - PORT %d IS RUNNING\n", config.ServicePort)
-                    log.Printf("   Access your app at: http://localhost:%d\n", config.ServicePort)
-                    log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                }
-                return
-            }
+				err := StartPortForward(
+					config.KubeconfigPath,
+					config.ContextName,
+					config.Namespace,
+					config.ServiceName,
+					config.ServicePort,
+					config.ServicePort,
+				)
 
-            if status == "failed" {
-                log.Printf("🚨 %s failed - advanced classification...\n", config.DeploymentName)
-                
-                // Use your existing failure_detector.go
-                classification, err := ClassifyDeploymentFailure(
-                    config.KubeconfigPath,
-                    config.ContextName,
-                    config.Namespace,
-                    config.DeploymentName,
-                )
-                if err != nil {
-                    classification = &FailureClassification{"soft", "classification-error", true}
-                }
-                
-                // Store classification
-                UpdateDeploymentFailure(config.DB, config.DeploymentID, classification)
-                
-                log.Printf("✅ Classified: %s (%s) - Kubernetes Watcher will handle instantly!", 
-                    classification.Type, classification.Reason)
-                return
-            }
-        }
-    }
+				if err != nil {
+					log.Printf("❌ Port-forward failed: %v\n", err)
+				} else {
+					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+					log.Printf("🎉 DEPLOYMENT COMPLETE - PORT %d IS RUNNING\n", config.ServicePort)
+					log.Printf("   Access your app at: http://localhost:%d\n", config.ServicePort)
+					log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+				}
+				return
+			}
+
+			if status == "failed" {
+				log.Printf("🚨 %s failed - advanced classification...\n", config.DeploymentName)
+
+				// Use your existing failure_detector.go
+				classification, err := ClassifyDeploymentFailure(
+					config.KubeconfigPath,
+					config.ContextName,
+					config.Namespace,
+					config.DeploymentName,
+				)
+				if err != nil {
+					classification = &FailureClassification{"soft", "classification-error", true}
+				}
+
+				// Store classification
+				UpdateDeploymentFailure(config.DB, config.DeploymentID, classification)
+
+				log.Printf("✅ Classified: %s (%s) - Kubernetes Watcher will handle instantly!",
+					classification.Type, classification.Reason)
+				return
+			}
+		}
+	}
 }
 
 // checkForFailedPods checks if any pods are in a failed state and returns the reason
@@ -463,10 +523,10 @@ func checkForFailedPods(config K8sDeployConfig) (bool, string) {
 			if containerStatus.State.Waiting != nil {
 				reason := containerStatus.State.Waiting.Reason
 				// These are critical failures that need rollback
-				if reason == "ImagePullBackOff" || 
-				   reason == "ErrImagePull" || 
-				   reason == "CreateContainerConfigError" || 
-				   reason == "InvalidImageName" {
+				if reason == "ImagePullBackOff" ||
+					reason == "ErrImagePull" ||
+					reason == "CreateContainerConfigError" ||
+					reason == "InvalidImageName" {
 					return true, fmt.Sprintf("pod-%s-image-error: %s", pod.Name, reason)
 				}
 				// Secret/ConfigMap not found
