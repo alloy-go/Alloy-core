@@ -6,6 +6,7 @@ import (
 	"time"
 
 	services "github.com/alloy-go/Alloy-core/client-go"
+	script "github.com/alloy-go/Alloy-core/scripts"
 	"github.com/alloy-go/Alloy-core/config"
 	"github.com/alloy-go/Alloy-core/routes"
 	"github.com/gin-contrib/cors"
@@ -22,7 +23,7 @@ func main() {
 	db := config.InitDB()
 	defer db.Close()
 
-	config.RunMigrations(db)
+	script.RunMigrations(db)
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.Default()

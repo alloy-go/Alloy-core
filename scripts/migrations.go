@@ -1,4 +1,4 @@
-package config
+package scripts
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 func RunMigrations(db *pgxpool.Pool) {
 	ctx := context.Background()
 
-	migrationsPath := "./migrations" // adjust relative path if needed
+	migrationsPath := "tables/" // adjust relative path if needed
 
 	err := filepath.WalkDir(migrationsPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
