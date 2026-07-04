@@ -32,6 +32,7 @@ func (dw *DeploymentWatcher) Start() {
     }()
 }
 
+// only watcher that manages uses two functions below it and it is used to live watch the deployments it should be in internal
 func (dw *DeploymentWatcher) watchAllDeployments() error {
     // Load kubeconfig from DB users table (your existing logic)
     var kubeconfigPath, defaultContext string

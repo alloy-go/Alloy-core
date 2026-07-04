@@ -1,4 +1,4 @@
-package k8deploy
+package Deploymentstatus
 
 import(
 	"context"
@@ -11,8 +11,7 @@ import(
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-
-func updateDeploymentStatus(db *pgxpool.Pool, deploymentID, status, secretStatus, serviceStatus, deploymentStatus string) {
+func Update(db *pgxpool.Pool, deploymentID, status, secretStatus, serviceStatus, deploymentStatus string) {
 	ctx := context.Background()
 
 	query := `UPDATE deployments SET status = $1, updated_at = NOW()`
@@ -44,7 +43,7 @@ func updateDeploymentStatus(db *pgxpool.Pool, deploymentID, status, secretStatus
 	}
 }
 
-func updateDeploymentError(db *pgxpool.Pool, deploymentID, errorMsg string) {
+func UpdateError(db *pgxpool.Pool, deploymentID, errorMsg string) {
 	ctx := context.Background()
 
 	// Truncate error message if too long and escape special chars
