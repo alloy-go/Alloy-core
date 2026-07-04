@@ -186,7 +186,7 @@ func (wc *WebhookController) DeployWebhook(c *gin.Context) {
 	})
 }
 
-// FAILED DEPLOY CHECK
+// FAILED DEPLOY CHECK - Dummy
 func (wc *WebhookController) DeployWebhookFailTest(c *gin.Context) {
 	var payload WebhookPayload
 

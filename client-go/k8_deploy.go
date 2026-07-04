@@ -607,6 +607,7 @@ func updateDeploymentError(db *pgxpool.Pool, deploymentID, errorMsg string) {
 	}
 }
 
+//done
 // ApplyYAML applies any Kubernetes YAML to the cluster
 func ApplyYAML(kubeconfigPath, contextName string, yamlContent []byte) error {
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
